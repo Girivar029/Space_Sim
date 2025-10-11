@@ -1,5 +1,6 @@
 import pygame
 import math
+#Experiment failed!
 pygame.init()
 
 WIDTH = 850
@@ -144,5 +145,6 @@ def main():
     
     pygame.quit()
 
-if __name__ == "__main__":
-    main()
+main()
+
+###This experiment is a fail!
