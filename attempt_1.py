@@ -5,7 +5,7 @@ pygame.init()
 # Window setup
 WIDTH, HEIGHT = 850, 700
 window = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption('Neon Cosmos: Scaled Solar System')
+pygame.display.set_caption('Attempt_1')
 
 # Colors in RGB
 YELLOW = (255, 255, 0)
@@ -18,7 +18,7 @@ BG_COLOR = (10, 10, 30)  # Dark space background
 
 class Planet:
     AU = 149.6e6 * 1000                  # Astronomical Unit in meters
-    SCALE = 250 / AU                     # Scale: 1 AU = 250 pixels
+    SCALE = 210 / AU                     # Scale: 1 AU = 250 pixels
     G = 6.67430e-11                     # Gravitational constant
     TIMESTEP = 3600 * 24                # One day per simulation step (seconds)
 
