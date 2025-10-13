@@ -8,4 +8,6 @@ Day 1(10-10-25) - 40 Minutes - Set up everything and first half of basic solar s
 
 Day 2(11-10-25) - - Completed the basic movement, learning the next parts.
 Work_Completed:
-- Basic movement of planets around the sun, completed in 1hr and 32mins(Wrote code following a tutorial and used AI for cleaning the code.)
+- Basic movement of planets around the sun, completed in 1hr and 32mins(Wrote code following a tutorial and used AI for cleaning the code)
+
+Day 3(12-10-25) - Completed a bsic version, 1 file with 750 lines which simulates basic systems, collisions and physics while lacking bigger and more correct physics and collision.

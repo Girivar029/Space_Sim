@@ -1,1 +1,11 @@
-N-Body Simulation
+Problems with first working version and features to implement:- 
+- Collision makes two objects merge, and doesn't accurately depict the differences, like a star and a planet collide and merge together instead of the star eating the planet.
+- Everything looks alike, there has to be a way to differentiate between planets, stars and black holes.
+- Gravitational pull does not work on every situation like it should in a proper replica of the real universe.
+- Information on screen only shows FPS and no of bodies but it has to be more in depth and interactible for a real simulation.
+- PLayers should be able to create a custom sim where they enter no. of stars, planets etc and then they form a custom system randomly.
+- Simulate collisions where merging of planets is not equal and there will be a bigger takes over the smaller one kinda thing.
+- Planets have to vary in size and size differences have to be shown accurately.
+- Planets, Stars and Blackholes have to look seperate.
+- Since it is a visuals based simulation, it should also look a lot better.
+-UI for features which show habitability, atmosphere, age etc.
