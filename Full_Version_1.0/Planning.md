@@ -54,3 +54,10 @@
 -Effective potential Theory
 -Tidal Force theory
 -Shell Theorem
+-Gravitational Wave Theory
+-Peters-Mathews Formula
+-Supernova Dynamics
+-Accretion Disk Theory
+-Eddington Limit
+-Neutron Star Equation of State
+-Chandrashekar Limit

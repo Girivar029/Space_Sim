@@ -11,3 +11,5 @@ Work_Completed:
 - Basic movement of planets around the sun, completed in 1hr and 32mins(Wrote code following a tutorial and used AI for cleaning the code)
 
 Day 3(12-10-25) - Completed a bsic version, 1 file with 750 lines which simulates basic systems, collisions and physics while lacking bigger and more correct physics and collision.
+
+Day 4(13-10-25) - Started the larger version of the sim with the gravity part of the code. Total time spent coding so far = 9hrs 37mins
