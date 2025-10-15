@@ -514,3 +514,159 @@ def calculate_gravitational_wave_recoil(body1: BodyProperties, body2:BodyPropert
     recoil_magnitude = GW_ENERGY_LOSS_FACTOR * energy_loss / C
     recoil_vector = recoil_magnitude * recoil_direction
     return recoil_vector
+
+def calculate_chirp_mass(body1: BodyProperties, body2: BodyProperties):
+    m1 = body1.mass
+    m2 = body2.mass
+    chirp_mass = ((m1 * m2) ** ( 3.0 / 5.0) / ((m1+m2) ** (1.0/5.0)))
+    return chirp_mass
+
+def calculate_merger_time(body1: BodyProperties,body2: BodyProperties, distance: float, eccentricity: float) -> float:
+    chirp_mass = calculate_chirp_mass(body1,body2)
+
+    beta = (64.0 / 5.0) * (G **3) * chirp_mass ** 3 / (C ** 5)
+
+    if eccentricity < 0.01:
+        merger_time = (distance ** 4) / (4.0 * beta)
+    else:
+        c0 = distance * (1.0 - eccentricity ** 2)
+        e0 = eccentricity
+        merger_time = (c0 ** 4 / beta) * (1.0 / (1.0 - e0 ** 2)) ** (7.0/2.0)
+    return merger_time
+
+def supernova_remnant_gravity(body1: BodyProperties, body2: BodyProperties, distance: float, time_since_explosion: float) -> np.ndarray:
+    direction, dist = calculate_distance_vector(body1.position,body2.position)
+
+    if body2.body_type != BodyType.SUPERNOVA:
+        return newtonian_gravity_force(body1, body2, GravityConfig())
+    
+    core_mass = body2.mass * SUPERNOVA_CORE_FRACTION
+    envelope_mass = body2.mass * core_mass / (distance * distance)
+
+    expansion_radius = SUPERNOVA_EXPANSION_VELOCITY * time_since_explosion
+
+    core_force = G * body1.mass * core_mass / (distance * distance)
+
+    if distance > expansion_radius:
+        envelope_contribution = envelope_mass
+    else:
+        shell_mass_fraction = (distance / expansion_radius) ** 3
+        envelope_contribution = envelope_mass * shell_mass_fraction
+
+    envelope_force = G * body1.mass * envelope_contribution / (distance * distance)
+    total_force_magnitude = core_force + envelope_force
+    total_force_magnitude = min(total_force_magnitude, MAX_FORCE_MAGNITUDE)
+
+    return total_force_magnitude * direction
+
+def calculate_radiation_pressure_force(body1: BodyProperties, body2: BodyProperties, distance: float) -> np.ndarray:
+    if body2.luminosity == 0:
+        return np.array([0.0,0.0])
+    
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+    cross_section = math.pi * body1.radius ** 2
+    radiation_intensity = body2.luminosity / (4.0 * math.pi * distance ** 2)
+    radiation_force_magnitude = (radiation_intensity * cross_section) / C
+    return radiation_force_magnitude * direction
+
+def white_dwarf_gravity_correction(body1: BodyProperties, body2: BodyProperties, distance:float) -> np.ndarray:
+    if body2.body_type != BodyType.WHITE_DWARF:
+        return newtonian_gravity_force(body1, body2, GravityConfig())
+    
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+
+    if body2.mass > CHANDRASEKHAR_LIMIT * SOLAR_MASS:
+        instability_factor = 1.0 + (body2.mass - CHANDRASEKHAR_LIMIT * SOLAR_MASS) / (CHANDRASEKHAR_LIMIT * SOLAR_MASS)
+    else:
+        instability_factor = 1.0
+
+    base_force = G * body1.mass * body2.mass / (distance * distance)
+
+    return base_force * instability_factor * direction
+#Day 2 Over - Hardly 2hrs and not very productive
+
+def neutron_star_gravity_correction(body1: BodyProperties, body2: BodyProperties, distance: float) -> np.ndarray:
+    if body2.body_type != BodyType.NEUTRON_STAR:
+        return newtonian_gravity_force(body1, body2, GravityConfig())
+    
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+    compactness = G * body2.mass / (body2.radius * C * C)
+    relativistic_correction = 1.0 / (1.0 / 2.0 * compactness)
+
+    base_force = G * body1.mass * body2.mass / (distance * distance)
+
+    if distance < 3.0 * body2.radius:
+        promximity_factor = 1.0 + 0.5 * (body2.radius / distance)
+        relativistic_correction *= promximity_factor
+
+    corrected_force = base_force * relativistic_correction
+
+    return corrected_force * direction
+
+def calculate_accretion_disk_torque(body1: BodyProperties, body2: BodyProperties, distance: float) -> np.ndarray:
+    if body2.body_type not in [BodyType.BLACKHOLE, BodyType.NEUTRON_STAR, BodyType.WHITE_DWARF]:
+        return np.array([0.0,0.0])
+    if distance > 100.0 * body2.radius:
+        return np.array([0.0,0.0])
+    
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+    perpendicular = np.array([-direction[1], direction[0]])
+
+    accertion_rate = BLACKHOLE_ACCERATION_EFFICIENCY * body2.mass / (1e8 * 365.25 * 24 *3600)
+
+    angular_momentum_transfer = accertion_rate * distance * math.sqrt(G * body2.mass * distance)
+
+    torque_force = angular_momentum_transfer / (body1.mass * distance)
+
+    return torque_force * perpendicular
+
+def calculate_eddington_limit(body: BodyProperties) -> float:
+    eddington_luminosity = (4.0 * math.pi * G * body.mass * C) / (0.4 * 6.65e-29)
+    return eddington_luminosity
+
+def check_eddington_accretion(body: BodyProperties) -> float:
+    if body.luminosity == 0:
+        return False
+    
+    eddington_limit = calculate_eddington_limit(body)
+    return body.luminosity > BLACKHOLE_EDDINGTON_FACTOR * eddington_limit
+
+def calculate_dynamical_friction(body1: BodyProperties, background_density: float, velocity_dispersion: float) -> np.ndarray:
+    if np.linalg.norm(body1.velocity) == 0:
+        return np.array([0.0,0.0])
+    
+    velocity = np.linalg.norm(body1.velocity)
+
+    coulomb_log = math.log(1.0 + (velocity / velocity_dispersion) ** 2)
+
+    friction_coefficient = 4.0 * math.pi * G * G * body1.mass * background_density * coulomb_log / (velocity ** 3)
+
+    friction_force_magnitude = friction_coefficient * body1.mass * velocity
+
+    friction_direction = -body1.velocity / velocity
+
+    return friction_force_magnitude * friction_direction
+
+def three_body_lagrange_points(body1: BodyProperties, body2: BodyProperties, distance: float) -> List[np.ndarray]:
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+    perpendicular = np.array([-direction[1], direction[0]])
+
+    mass_ratio = body2.mass / (body1.mass + body2.mass)
+    barycenter = body1.position + mass_ratio * distance * direction
+
+    l1_dirstance = direction * (mass_ratio / 3.0) ** (1.0/3.0)
+    l1 = barycenter - l1_dirstance * direction
+
+    l2_dirstance = direction * (mass_ratio / 3.0) ** (1.0/3.0)
+    l2 = barycenter + l2_dirstance * direction
+
+    l3_dirstance = direction * (mass_ratio / 3.0) ** (1.0/3.0)
+    l3 = body1.position - l3_dirstance * direction
+
+    l4_offset = distance * math.sqrt(3.0) / 2.0
+    l4 = barycenter + l4_offset * perpendicular
+
+    l5_offset = distance * math.sqrt(3.0) / 2.0
+    l5 = barycenter - l5_offset * perpendicular
+
+    return [l1,l2,l3,l4,l5]
