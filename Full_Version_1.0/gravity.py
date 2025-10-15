@@ -101,7 +101,7 @@ class BodyType(Enum):
 class GravityModel(Enum):
     NEWTONIAN = "newtonian"
     POST_NEWTONIAN = "post_newtonian"
-    SCHWARZSCHILD = "schwarzshild"
+    SCHWARZSCHILD = "schwarzcshild"
     KERR = "kerr"
     FULL_RELATIVITY = "full_relativity"
 
@@ -670,3 +670,392 @@ def three_body_lagrange_points(body1: BodyProperties, body2: BodyProperties, dis
     l5 = barycenter - l5_offset * perpendicular
 
     return [l1,l2,l3,l4,l5]
+#day 3 break 1 after 45mins
+
+def calculate_spin_orbit_coupling(body1: BodyProperties, body2: BodyProperties, distance:float) ->np.ndarray:
+    if body1.spin_angular_momentum == 0 and body2.spin_angular_momentum == 0:
+        return np.array([0.0,0.0])
+    
+    direction, dist = calculate_distance_vector(body1.position, body2.position)
+    spin_coupling_coefficient = (3.0 * G) / (2.0 * C * C * distance ** 3)
+    s1_dot_r = np.dot(body1.spin_axis[:2], direction)
+    s2_dot_r = np.dot(body2.spin_axis[:2], direction)
+
+    coupling_force_magnitude = spin_coupling_coefficient * (body1.spin_angular_momentum * s1_dot_r + body2.spin_angular_momentum * s2_dot_r)
+
+    perpendicular = np.array([-direction[-1], direction[0]])
+
+    return coupling_force_magnitude * perpendicular
+
+def calculate_precession_rate(body1: BodyProperties, body2: BodyProperties, distance:float, orbital_velocity: float) -> float:
+    if body2.body_type != BodyType.BLACKHOLE:
+        gm_term = 3.0 * G * body2.mass / (distance * C * C)
+    else:
+        r_s = body2.schwarzschild_radius
+        gm_term = 6.0 * math.pi * G * body2.mass / (distance * C * C * (1.0 - r_s / distance))
+    
+    precession_rate = gm_term * (orbital_velocity / distance)
+
+    return precession_rate
+
+def calculate_orbital_decay_rate(body1: BodyProperties, body2:BodyProperties, distance: float, orbital_veloctiy: float) -> float:
+    gw_power = calculate_gravitational_wave_energy_loss(body1, body2, distance, orbital_veloctiy)
+
+    orbital_energy = -G * body1.mass * body2.mass / (2.0 * distance)
+
+    if orbital_energy == 0:
+        return 0.0
+    
+    decay_rate = -gw_power / orbital_energy
+    return decay_rate
+
+def relativistic_beaming_correction(body1:BodyProperties, body2:BodyProperties) -> float:
+    rel_velocity = body1.velocity - body2.velocity
+    v_magnitude = np.linalg.norm(rel_velocity)
+
+    if v_magnitude == 0:
+        return 1.0
+    
+    beta = v_magnitude / C
+    gamma = 1.0 / math.sqrt(1.0 - beta * beta)
+
+    beaming_factor = gamma ** 3 *(1.0 - beta) ** 3
+
+    return beaming_factor
+
+# The next part should have done in the beginning but was not necessary back then.
+
+@dataclass
+class GravitySystemState:
+    total_kinetic_energy: float = 0.0
+    total_potential_energy: float = 0.0
+    total_energy: float = 0.0
+    total_angular_momentum: np.ndarray = None
+    center_of_mass: np.ndarray = None
+    center_of_mass_velocity: np.ndarray = None
+    virial_ratio: float = 0.0
+    system_temperature: float = 0.0
+    gravitiational_binding_energy: float = 0.0
+
+    def _post_init_(self):
+        if self.total_angular_momentum is None:
+            self.total_angular_momentum = np.array([0.0,0.0,0.0])
+        if self.center_of_mass is None:
+            self.center_of_mass = np.array([0.0,0.0])
+        if self.center_of_mass_velocity is None:
+            self.center_of_mass_velocity = np.array([0.0,0.0])
+
+class GravityIntegrater:
+    def __init__(self, config: GravityConfig):
+        self.config = config
+        self.force_calculations = 0
+        self.integration_steps = 0
+        self.adaptive_dt = 0.0
+
+    def calculate_total_force(self, body: BodyProperties, all_bodies: List[BodyProperties], time: float = 0.0) -> np.ndarray:
+        total_force = np.array([0.0,0.0])\
+        
+        for other in all_bodies:
+            if other is body:
+                continue
+
+            direction, distance = calculate_distance_vector(body.position,other.position)
+
+            if distance < self.config.min_distance:
+                continue
+
+            model = select_gravity_model(body, other, distance)
+
+            if model == GravityModel.NEWTONIAN:
+                force = newtonian_gravity_force(body, other, self.config)
+            elif model ==  GravityModel.POST_NEWTONIAN:
+                newtonian_force = newtonian_gravity_force(body, other, self.config)
+                force = post_newtonian_correction(body, other, newtonian_force, distance)
+            elif model  == GravityModel.SCHWARZSCHILD:
+                force = schwarzschild_gravity_force(body, other, distance, self.config)
+            elif model == GravityModel.KERR:
+                schwarzschild_force = schwarzschild_gravity_force(body, other, distance, self.config)
+                kerr_correction = calculate_kerr_metric_correction(body, other, distance)
+                force = schwarzschild_force * kerr_correction
+            else:
+                force = newtonian_gravity_force(body, other, self.config)
+
+            if self.config.enable_frame_dragging:
+                frame_drag = calculate_frame_dragging_effect(body, other, distance)
+                force += frame_drag
+
+            if self.config.enable_gw_radiation:
+                orbital_vel = np.linalg.norm(body.velocity)
+                gw_recoil = calculate_gravitational_wave_recoil(body, other, distance,orbital_vel)
+                force += gw_recoil * body.mass
+
+            if other.body_type == BodyType.SUPERNOVA:
+                supernova_force = supernova_remnant_gravity(body, other, distance, time)
+                force = supernova_force
+
+            if self.config.enable_tidal_forces and body.is_extended:
+                tidal_force, tidal_stress = calculate_tidal_force(body, other, distance)
+                force += tidal_force
+
+            if other.luminosity > 0:
+                radiation_force = calculate_radiation_pressure_force(body, other, distance)
+                force += radiation_force
+
+            total_force += force
+            self.force_calculations += 1
+
+        force_magnitude = np.linalg.norm(total_force)
+        if force_magnitude > self.config.max_force_magnitude:
+            total_force = (self.config.max_force_magnitude / force_magnitude) * total_force
+
+        return total_force
+    
+    def euler_step(self, bodies:List[BodyProperties], dt: float, time:float = 0.0):
+        for body in bodies:
+            force = self.calculate_total_force(body, bodies, time)
+            body.acceleration = force / body.mass
+
+        for body in bodies:
+            body.velocity += body.acceleration * dt
+            body.position += body.velocity * dt
+
+        self.integration_steps += 1
+
+    def leapfrog_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
+        for body in bodies:
+            body.position += body.velocity * (dt / 2.0)
+
+        for body in bodies:
+            force = self.calculate_total_force(body, bodies, time)
+            body.acceleration = force / body.mass
+
+        for body in bodies:
+            body.velocity += body.acceleration * dt
+
+        for body in bodies:
+            body.position += body.velocity * (dt * 2.0)
+
+        self.integration_steps += 1
+
+    def rk4_step(self, bodies:List[BodyProperties], dt:float, time: float = 0.0):
+        intial_staus = []
+        for body in bodies:
+            intial_staus.append({
+                'position': body.position.copy(),
+                'velocity': body.velocity.copy(),
+                'acceleration': body.acceleration.copy()
+            })
+
+        k1_velocities = []
+        k1_accelerations = []
+        for i, body in enumerate(bodies):
+            force = self.calculate_total_force(body, bodies, time)
+            acceleration = force / body.mass
+            k1_velocities.append(body.velocity.copy())
+            k1_accelerations.append(acceleration)
+
+        for i, body in enumerate(bodies):
+            body.position = intial_staus[i]['position'] + k1_velocities[1] * (dt / 2.0)
+            body.velocity = intial_staus[1]['velocity'] + k1_accelerations[1] * (dt / 2.0)
+
+        k2_velocities = []
+        k2_accelerations = []
+        for i, body in enumerate(bodies):
+            force = self.calculate_total_force(body, bodies, time +dt / 2.0)
+            acceleration = force / body.mass
+            k2_velocities.append(body.velocity.copy())
+            k2_accelerations.append(acceleration)
+
+        for i, body in enumerate(bodies):
+            body.position = intial_staus[i]['position'] + k2_velocities[1] * (dt / 2.0)
+            body.velocity = intial_staus[1]['velocity'] + k2_accelerations[1] * (dt / 2.0)
+
+        k3_velocities = []
+        k3_accelerations = []
+        for i, body in enumerate(bodies):
+            force = self.calculate_total_force(body, bodies, time + dt / 2.0)
+            acceleration = force / body.mass
+            k2_velocities.append(body.velocity.copy())
+            k2_accelerations.append(acceleration)
+
+        for i, body in enumerate(bodies):
+            body.position = intial_staus[i]['position'] + k3_velocities[1] * dt
+            body.velocity = intial_staus[1]['velocity'] + k3_accelerations[1] * dt
+
+        k4_velocities = []
+        k4_accelerations = []
+        for i, body in enumerate(bodies):
+            force = self.calculate_total_force(body, bodies, time +dt)
+            acceleration = force / body.mass
+            k2_velocities.append(body.velocity.copy())
+            k2_accelerations.append(acceleration)
+
+        for i, body in enumerate(bodies):
+            body.position = intial_staus[i]['position'] + (dt / 6.0) * (k1_velocities[i] + 2.0 * k2_velocities[i] + 2.0 * k3_velocities[i], k4_velocities[i])
+            body.velocity = intial_staus[1]['velocity'] + (dt / 6.0) * (k1_accelerations[i] + 2.0 * k2_accelerations[i] + 2.0 * k3_accelerations[i], k4_accelerations[i])
+            body.acceleration = k4_accelerations[i]
+        self.integration_steps += 1
+
+    def adaptive_timestep(self, bodies: List[BodyProperties], base_dt: float) -> float:
+        max_acceleration = 0.0
+        max_velocity = 0.0
+
+        for body in bodies:
+            acc_magnitde = np.linalg.norm(body.acceleration)
+            vel_magnitude = np.linalg.norm(body.velocity)
+            max_acceleration =max(max_acceleration, acc_magnitde)
+            max_velocity = max(max_velocity, vel_magnitude)
+        
+        if max_acceleration > 0:
+            dt_acc = math.sqrt(self.config.accuracy_tolerance / max_acceleration)
+        else:
+            dt_acc = base_dt
+
+        if max_velocity > 0:
+            dt_vel = self.config.accuracy_tolerance / max_velocity
+        else:
+            dt_vel = base_dt
+
+        adaptive_dt=min(base_dt, dt_acc, dt_vel)
+        adaptive_dt=max(adaptive_dt, base_dt * 0.01)
+        adaptive_dt=min(adaptive_dt, base_dt * 10.0)
+
+        self.adaptive_dt = adaptive_dt
+        return adaptive_dt
+    
+    def integrate_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
+        if self.config.adaptive_timestep:
+            dt = self.adaptive_timestep(bodies, dt)
+
+            if self.config.integration_method == IntegrationModule.EULER:
+                self.euler_step(bodies, dt, time)
+            elif self.config.integration_method == IntegrationModule.LEAPFROG:
+                self.leapfrog_step(bodies, dt, time)
+            elif self.config.integration_method == IntegrationModule.RK4:
+                self.rk4_step(bodies, dt, time)
+            else:
+                self.euler_step(bodies, dt, time)
+
+def calculate_system_energy(bodies:List[BodyProperties]) -> Tuple[float,float,float]:
+    kinetic_energy = 0.0
+    for body in bodies:
+        velocity_squared = np.dot(body.velocity, body.velocity)
+        kinetic_energy += 0.5 * body.mass * velocity_squared
+
+    potential_energy = 0.0
+    for i in range(len(bodies)):
+        for j in range(i + 1, len(bodies)):
+            direction, distance = calculate_distance_vector(bodies[i].position,bodies[j].position)
+
+            if distance > 0:
+                potential_energy -= G * bodies[i].mass * bodies[j].mass / distance
+
+    total_energy = kinetic_energy + potential_energy
+    return kinetic_energy, potential_energy, total_energy
+
+def calculate_angular_momrntum(bodies: List[BodyProperties]) -> np.ndarray:
+    total_angular_momentum = np.array([0.0,0.0,0.0])
+
+    for body in bodies:
+        r = np.array([body.position[0],body.position[1], 0.0])
+        v = np.array([body.velocity[0],body.velocity[1],0.0])
+        L = body.mass * np.cross(r,v)
+        total_angular_momentum += L
+
+    return total_angular_momentum
+
+def calculate_center_of_mass(bodies: List[BodyProperties]) -> Tuple[np.ndarray,np.ndarray]:
+    total_mass = sum(body.mass for body in bodies)
+
+    com_position = np.array([0.0,0.0])
+    com_velocity = np.array([0.0,0.0])
+
+    for body in bodies:
+        com_position += body.mass * body.position
+        com_velocity += body.mass * body.position
+    com_position /= total_mass
+    com_velocity /= total_mass
+    return com_position, com_velocity
+
+def calculate_virial_ratio(bodies:List[BodyProperties]) -> float:
+    ke, pe ,te = calculate_system_energy(bodies)
+
+    if pe!= 0:
+        virial_ratio = -2.0 * ke / pe
+    else:
+        virial_ratio = 0.0
+
+    return virial_ratio
+
+def calculate_system_temperature(bodies: List[BodyProperties]) -> float:
+    kinetic_energy, _, _ = calculate_system_energy(bodies)
+    total_mass = sum(body.mass for body in bodies)
+    n_bodies = len(bodies)
+
+    if n_bodies > 0:
+        avg_kinteic_energy = kinetic_energy / n_bodies
+        boltzmann_constant = 1.380649e-29
+        temperature = (2.0/3.0) * avg_kinteic_energy / boltzmann_constant
+    else:
+        temperature = 0.0
+    return temperature
+
+def update_system_state(bodies: List[BodyProperties]) -> GravitySystemState:
+    ke, pe, te = calculate_system_energy(bodies)
+    angular_momentum = calculate_angular_momrntum(bodies)
+    com_pos, com_vel = calculate_center_of_mass(bodies)
+    virial = calculate_virial_ratio(bodies)
+    temp = calculate_system_temperature(bodies)
+
+    state = GravitySystemState(
+        total_kinetic_energy=ke,
+        total_potential_energy=pe,
+        total_energy=te,
+        total_angular_momentum=angular_momentum,
+        center_of_mass=com_pos,
+        center_of_mass_velocity=com_vel,
+        virial_ratio=virial,
+        system_temperature=temp,
+        gravitiational_binding_energy=-pe
+    )
+
+    return state
+
+def export_body_data_for_hud(body: BodyProperties) -> Dict:
+    data = {
+        'type': body.body_type.value,
+        'mass': body.mass,
+        'mass_solar': body.mass / SOLAR_MASS,
+        'radius': body.radius,
+        'position': body.position.tolist(),
+        'velocity': body.velocity.tolist(),
+        'speed': np.linalg.norm(body.velocity),
+        'acceleration': body.acceleration.tolist(),
+        'acceleration_magnitude': np.linalg.norm(body.acceleration),
+        'kinteic_energy': 0.5 * body.mass * np.dot(body.velocity, body.velocity),
+        'temperature': body.temperature,
+        'luminosity': body.luminosity
+    }
+
+    if body.body_type == BodyType.BLACKHOLE:
+        data['schwazschild radius'] = body.schwarzschild_radius
+        data['photon_sphere_radius'] = body.photon_sphere_radius
+        data['isco_radius'] = body.isco_radius
+        data['kerr_parameter'] = body.kerr_parameter
+    return data
+
+def export_system_data_for_hud(bodies: List[BodyProperties], state: GravitySystemState) -> Dict:
+    data = {
+        'n_bodies': len(bodies),
+        'total_mass': sum(b.mass for b in bodies),
+        'total_kinetic_energy': state.total_kinetic_energy,
+        'total_potential_energy': state.total_potential_energy,
+        'total_energy': state.total_energy,
+        'angular_momentum': state.total_angular_momentum.tolist(),
+        'center_of_mass': state.center_of_mass.tolist(),
+        'virial_ratio': state.virial_ratio,
+        'system_temperature': state.system_temperature,
+        'binding_array': state.gravitiational_binding_energy
+    }
+    return data
+#Gravity part of the sim in completed.

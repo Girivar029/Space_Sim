@@ -61,3 +61,11 @@
 -Eddington Limit
 -Neutron Star Equation of State
 -Chandrashekar Limit
+-Force superposition Principle\
+-Runge-Kutta Methods
+-Leapfrog integration
+-Adaptive timestep control
+-Energy Conservation
+-Angular Momentum Conservation
+-Virial Theorem
+-Barnes-Hut Algorithm
