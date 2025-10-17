@@ -3,7 +3,7 @@ import math
 import numpy as np
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict
 
 G = 6.67430e-11
 C = 299792458.0
@@ -180,11 +180,17 @@ def get_softening_for_body_type(body_type: BodyType, base_softening: float) -> f
         BodyType.STAR: STAR_SOFTENING_FACTOR,
         BodyType.BLACKHOLE: BLACKHOLE_SOFTENING_FACTOR,
         BodyType.SUPERNOVA: SUPERNOVA_SOFTENING_FACTOR,
-        BodyType.NEUTRON_STAR: NEURON_STAR_SOFTENING_FACTOR,
-        BodyType.WHITE_DWARF: WHITE_DWARF_SOFTENING_FACTOR,
-        BodyType.ASTEROID: PLANET_SOFTENING_FACTOR * 0.5,
-        BodyType.COMET: PLANET_SOFTENING_FACTOR * 0.3
+        BodyType.NEUTRON_STAR: STAR_SOFTENING_FACTOR * 0.5,
+        BodyType.WHITE_DWARF: STAR_SOFTENING_FACTOR * 0.8,
     }
+
+    # Default fallback if body type key not found
+    factor = softening_map.get(body_type, 1.0)
+    if factor is None:
+        factor = 1.0
+
+    return base_softening * factor
+
 
 def select_gravity_model(body1: BodyProperties, body2: BodyProperties, distance: float) -> GravityModel:
     if body1.body_type == BodyType.BLACKHOLE or body2.body_type == BodyType.BLACKHOLE:
@@ -221,13 +227,13 @@ def calculate_distance_vector(pos1: np.ndarray, pos2: np.ndarray) -> Tuple[np.nd
 
     return direction, distance
 
-def newtonian_gravity_force(body1: BodyProperties, body2:BodyProperties, config: GravityConfig) -> np.ndarray:
+def newtonian_gravity_force(body1: BodyProperties, body2: BodyProperties, config: GravityConfig) -> np.ndarray:
     direction, distance = calculate_distance_vector(body1.position, body2.position)
 
     if config.enable_softening:
         softening1 = get_softening_for_body_type(body1.body_type, config.softening_length)
-        softening2 = get_softening_for_body_type(body1.body_type, config.softening_length)
-        softening = math.sqrt(softening1, softening2)
+        softening2 = get_softening_for_body_type(body2.body_type, config.softening_length)
+        softening = math.sqrt(softening1 * softening2)
         distance_squared = distance * distance + softening * softening
         effective_distance = math.sqrt(distance_squared)
     else:
@@ -237,7 +243,7 @@ def newtonian_gravity_force(body1: BodyProperties, body2:BodyProperties, config:
     force_magnitude = G * body1.mass * body2.mass / distance_squared
     force_magnitude = min(force_magnitude, config.max_force_magnitude)
     force_vector = force_magnitude * direction
-
+    
     return force_vector
 
 def post_newtonian_correction(body1: BodyProperties, body2: BodyProperties, newtonian_force: np.ndarray, distance: float) -> np.ndarray:
@@ -745,7 +751,7 @@ class GravitySystemState:
         if self.center_of_mass_velocity is None:
             self.center_of_mass_velocity = np.array([0.0,0.0])
 
-class GravityIntegrater:
+class GravityIntegrator:
     def __init__(self, config: GravityConfig):
         self.config = config
         self.force_calculations = 0
@@ -837,64 +843,162 @@ class GravityIntegrater:
 
         self.integration_steps += 1
 
-    def rk4_step(self, bodies:List[BodyProperties], dt:float, time: float = 0.0):
-        intial_staus = []
+    def rk4_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
+        initial_states = []
         for body in bodies:
-            intial_staus.append({
+            initial_states.append({
                 'position': body.position.copy(),
                 'velocity': body.velocity.copy(),
                 'acceleration': body.acceleration.copy()
             })
 
+    # k1
         k1_velocities = []
         k1_accelerations = []
-        for i, body in enumerate(bodies):
+        for body in bodies:
             force = self.calculate_total_force(body, bodies, time)
             acceleration = force / body.mass
             k1_velocities.append(body.velocity.copy())
             k1_accelerations.append(acceleration)
 
+    # k2
         for i, body in enumerate(bodies):
-            body.position = intial_staus[i]['position'] + k1_velocities[1] * (dt / 2.0)
-            body.velocity = intial_staus[1]['velocity'] + k1_accelerations[1] * (dt / 2.0)
+            body.position = initial_states[i]['position'] + k1_velocities[i] * (dt / 2.0)
+            body.velocity = initial_states[i]['velocity'] + k1_accelerations[i] * (dt / 2.0)
 
         k2_velocities = []
         k2_accelerations = []
-        for i, body in enumerate(bodies):
-            force = self.calculate_total_force(body, bodies, time +dt / 2.0)
-            acceleration = force / body.mass
-            k2_velocities.append(body.velocity.copy())
-            k2_accelerations.append(acceleration)
-
-        for i, body in enumerate(bodies):
-            body.position = intial_staus[i]['position'] + k2_velocities[1] * (dt / 2.0)
-            body.velocity = intial_staus[1]['velocity'] + k2_accelerations[1] * (dt / 2.0)
-
-        k3_velocities = []
-        k3_accelerations = []
-        for i, body in enumerate(bodies):
+        for body in bodies:
             force = self.calculate_total_force(body, bodies, time + dt / 2.0)
             acceleration = force / body.mass
             k2_velocities.append(body.velocity.copy())
             k2_accelerations.append(acceleration)
 
+    # k3
         for i, body in enumerate(bodies):
-            body.position = intial_staus[i]['position'] + k3_velocities[1] * dt
-            body.velocity = intial_staus[1]['velocity'] + k3_accelerations[1] * dt
+            body.position = initial_states[i]['position'] + k2_velocities[i] * (dt / 2.0)
+            body.velocity = initial_states[i]['velocity'] + k2_accelerations[i] * (dt / 2.0)
+
+        k3_velocities = []
+        k3_accelerations = []
+        for body in bodies:
+            force = self.calculate_total_force(body, bodies, time + dt / 2.0)
+            acceleration = force / body.mass
+            k3_velocities.append(body.velocity.copy())
+            k3_accelerations.append(acceleration)
+
+    # k4
+        for i, body in enumerate(bodies):
+            body.position = initial_states[i]['position'] + k3_velocities[i] * dt
+            body.velocity = initial_states[i]['velocity'] + k3_accelerations[i] * dt
 
         k4_velocities = []
         k4_accelerations = []
-        for i, body in enumerate(bodies):
-            force = self.calculate_total_force(body, bodies, time +dt)
+        for body in bodies:
+            force = self.calculate_total_force(body, bodies, time + dt)
             acceleration = force / body.mass
-            k2_velocities.append(body.velocity.copy())
-            k2_accelerations.append(acceleration)
+            k4_velocities.append(body.velocity.copy())
+            k4_accelerations.append(acceleration)
 
+    # final update
         for i, body in enumerate(bodies):
-            body.position = intial_staus[i]['position'] + (dt / 6.0) * (k1_velocities[i] + 2.0 * k2_velocities[i] + 2.0 * k3_velocities[i], k4_velocities[i])
-            body.velocity = intial_staus[1]['velocity'] + (dt / 6.0) * (k1_accelerations[i] + 2.0 * k2_accelerations[i] + 2.0 * k3_accelerations[i], k4_accelerations[i])
+            body.position = (
+                initial_states[i]['position'] +
+                (dt / 6.0) * (k1_velocities[i] + 2 * k2_velocities[i] + 2 * k3_velocities[i] + k4_velocities[i])
+            )
+            body.velocity = (
+                initial_states[i]['velocity'] +
+                (dt / 6.0) * (k1_accelerations[i] + 2 * k2_accelerations[i] + 2 * k3_accelerations[i] + k4_accelerations[i])
+            )
             body.acceleration = k4_accelerations[i]
+
         self.integration_steps += 1
+
+
+    def integrate_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
+        method = getattr(self.config, 'integration_method', IntegrationModule.EULER)
+
+        if method == IntegrationModule.EULER:
+            self.euler_step(bodies, dt, time)
+        elif method == IntegrationModule.LEAPFROG:
+            self.leapfrog_step(bodies, dt, time)
+        elif method == IntegrationModule.RK4:
+            self.rk4_step(bodies, dt, time)
+        else:
+            self.euler_step(bodies, dt, time)
+
+
+
+def rk4_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
+    # Store initial position, velocity, and acceleration
+    initial_states = []
+    for body in bodies:
+        initial_states.append({
+            'position': body.position.copy(),
+            'velocity': body.velocity.copy(),
+            'acceleration': body.acceleration.copy()
+        })
+
+    k1_velocities = []
+    k1_accelerations = []
+    for body in bodies:
+        force = self.calculate_total_force(body, bodies, time)
+        acc = force / body.mass
+        k1_velocities.append(body.velocity.copy())
+        k1_accelerations.append(acc)
+
+    for i, body in enumerate(bodies):
+        body.position = initial_states[i]['position'] + k1_velocities[i] * (dt / 2.0)
+        body.velocity = initial_states[i]['velocity'] + k1_accelerations[i] * (dt / 2.0)
+
+    k2_velocities = []
+    k2_accelerations = []
+    for body in bodies:
+        force = self.calculate_total_force(body, bodies, time + dt / 2.0)
+        acc = force / body.mass
+        k2_velocities.append(body.velocity.copy())
+        k2_accelerations.append(acc)
+
+    for i, body in enumerate(bodies):
+        body.position = initial_states[i]['position'] + k2_velocities[i] * (dt / 2.0)
+        body.velocity = initial_states[i]['velocity'] + k2_accelerations[i] * (dt / 2.0)
+
+    k3_velocities = []
+    k3_accelerations = []
+    for body in bodies:
+        force = self.calculate_total_force(body, bodies, time + dt / 2.0)
+        acc = force / body.mass
+        k3_velocities.append(body.velocity.copy())
+        k3_accelerations.append(acc)
+
+    for i, body in enumerate(bodies):
+        body.position = initial_states[i]['position'] + k3_velocities[i] * dt
+        body.velocity = initial_states[i]['velocity'] + k3_accelerations[i] * dt
+
+    k4_velocities = []
+    k4_accelerations = []
+    for body in bodies:
+        force = self.calculate_total_force(body, bodies, time + dt)
+        acc = force / body.mass
+        k4_velocities.append(body.velocity.copy())
+        k4_accelerations.append(acc)
+
+    for i, body in enumerate(bodies):
+        body.position = (
+            initial_states[i]['position']
+            + (dt / 6.0)
+            * (k1_velocities[i] + 2.0 * k2_velocities[i] + 2.0 * k3_velocities[i] + k4_velocities[i])
+        )
+        body.velocity = (
+            initial_states[i]['velocity']
+            + (dt / 6.0)
+            * (k1_accelerations[i] + 2.0 * k2_accelerations[i] + 2.0 * k3_accelerations[i] + k4_accelerations[i])
+        )
+
+        body.acceleration = k4_accelerations[i]
+
+    self.integration_steps += 1
+
 
     def adaptive_timestep(self, bodies: List[BodyProperties], base_dt: float) -> float:
         max_acceleration = 0.0
@@ -1059,3 +1163,62 @@ def export_system_data_for_hud(bodies: List[BodyProperties], state: GravitySyste
     }
     return data
 #Gravity part of the sim in completed.
+
+#Testing Gravity
+
+def main():
+    import numpy as np
+
+    print("Starting Gravity module internal test...")
+
+    # Define two Bodies: Sun and Earth analogs
+    sun = BodyProperties(
+        body_type=BodyType.STAR,
+        mass=1.989e30,
+        radius=6.96e8,
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0])
+    )
+
+    earth = BodyProperties(
+        body_type=BodyType.PLANET,
+        mass=5.972e24,
+        radius=6.371e6,
+        position=np.array([1.496e11, 0.0]),
+        velocity=np.array([0.0, 29783.0])  # Orbital velocity
+    )
+
+    bodies = [sun, earth]
+
+    # Configure gravity system
+    config = GravityConfig()
+    gravity_integrator = GravityIntegrator(config)  
+
+    dt = 3600 * 6  # 6 hours timestep
+    time = 0.0
+
+    print("Simulating 10 timesteps of Earth orbiting the Sun:")
+    for i in range(10):
+        gravity_integrator.integrate_step(bodies, dt, time)
+        time += dt
+        distance = np.linalg.norm(earth.position)
+        speed = np.linalg.norm(earth.velocity)
+        print(f"Step {i+1} | Earth distance: {distance:.3e} m | Speed: {speed:.2f} m/s")
+
+    # Summary system energy and momentum
+    state = update_system_state(bodies)
+    print("\nSystem Energy:")
+    print(f"  Kinetic Energy:   {state.total_kinetic_energy:.3e} J")
+    print(f"  Potential Energy: {state.total_potential_energy:.3e} J")
+    print(f"  Total Energy:     {state.total_energy:.3e} J")
+    print(f"  Virial Ratio:     {state.virial_ratio:.3f}")
+    print(f"  Angular Momentum: {state.total_angular_momentum}")
+
+    # Export data for HUD
+    hud_data = export_system_data_for_hud(bodies, state)
+    print("\nHUD Data Snapshot:")
+    print(hud_data)
+
+    print("\nTest complete.")
+
+main()

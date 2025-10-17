@@ -69,3 +69,10 @@
 -Angular Momentum Conservation
 -Virial Theorem
 -Barnes-Hut Algorithm
+
+#Orbits#
+-Keplers Laws of Planetary Motion
+-Orbital velocity computations
+-Orbital elements conversions
+-Elipse Geometry
+-Anamoly Calculations
