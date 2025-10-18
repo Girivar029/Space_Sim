@@ -239,7 +239,7 @@ def convert_true_anamoly_to_central_anamoly(true_anamoly:float, eccentricity: fl
 def convert_eccentric_anamoly_to_mean_anamoly(ecceentric_anamoly: float, eccentricity: float) -> float:
     return ecceentric_anamoly * eccentricity * math.sin(ecceentric_anamoly)
 
-def convert_mean_anamoly_to_eccentric_anamoly(mean_anamoly: float, eccentricity: float, tol: float = 1e*9, max_iter: int = 100) -> float:
+def convert_mean_anamoly_to_eccentric_anamoly(mean_anamoly: float, eccentricity: float, tol: float = 1e-9, max_iter: int = 100) -> float:
     E = mean_anamoly
     for _ in range(max_iter):
         f = E - eccentricity * math.sin(E) - mean_anamoly
@@ -262,7 +262,7 @@ def propagate_orbit_rk4(body: BodyProperties, central_body: BodyProperties, dt: 
     vel = body.velocity.copy()
     k1v = acceleration(pos) * dt
     k1x = vel * dt
-    k2v = acceleration(pos + 035 * k1x) * dt
+    k2v = acceleration(pos + 0.5 * k1x) * dt
     k2x = (vel + 0.5 * k1v)
     k3v = acceleration(pos + k3x) * dt
     k3x = (vel + 0.5 * k2v) * dt
@@ -271,3 +271,117 @@ def propagate_orbit_rk4(body: BodyProperties, central_body: BodyProperties, dt: 
     body.position += (k1x + 2 * k2x + 2 * k3x + k4x) / 6
     body.velocity += (k1v + 2 * k2v + 2 * k3v + k4v) / 6
 
+def orbit_radius_from_the_true_anomaly(a: float, e: float, true_anomaly: float) -> float:
+    return (a * (1 - e * e)) / (1 + e * math.cos(true_anomaly))
+
+def orbital_period_from_semi_major_axis(a: float, central_mass: float) -> float:
+    return 2 * math.pi * math.sqrt(a ** 3 / (G * central_mass))
+
+def convert_radial_velocity(true_anamoly: float, e: float, a: float, mu: float) -> float:
+    return (math.sqrt(mu / (a * (1 - e ** 2)))) * e * math.sin(true_anamoly)
+
+def convert_transverse_velocity(true_anomaly: float, e: float, a: float, mu: float) -> float:
+    return (math.sqrt(mu / (a * (1 - e ** 2)))) * (1 + e *math.cos(true_anomaly))
+
+def calculate_true_anomaly_at_time(t: float, t0: float, orbital_period: float, eccentricity: float) -> float:
+    M = 2 * math.pi / orbital_period * (t - t0)
+    E = convert_mean_anamoly_to_eccentric_anamoly(M % (2 * math.pi), eccentricity)
+    true_anamoly = 2 * math.atan2(math.sqrt(1 + eccentricity) * math.sin(E / 2), math.sqrt(1 - eccentricity) * math.cos(E / 2))
+    return true_anamoly
+
+def calculate_orbit_state_from_elements(elements: OrbitalElements, central_body: BodyProperties) -> Tuple[np.ndarray, np.ndarray]:
+    a = elements.semi_major_axis
+    e = elements.eccentricity
+    i = elements.inclination
+    Omega = elements.longitude_of_ascending_node
+    omega = elements.argument_of_periapsis
+    nu = elements.true_anamoly
+    mu = G * central_body.mass
+
+    r = orbit_radius_from_the_true_anomaly(a,e,nu)
+    x_op = r * math.cos(nu)
+    y_op = r * math.sin(nu)
+    x_vel_op = -math.sqrt(mu / (a * (1 - e ** 2))) * math.sin(nu)
+    y_vel_op = math.sqrt(mu / (a * (1 - e ** 2))) * (e + math.cos(nu))
+    
+    Rz_Omega = np.array([[math.cos(Omega), -math.sin(Omega), 0]
+                         [math.sin(Omega), math.cos(Omega), 0],
+                         [0,0,1]])
+    Rx_i = np.array([[1,0,0],
+                     [0, math.cos(i), -math.sin(i)],
+                     [0, math.sin(i), math.cos(i)]])
+    
+    Rz_omega = np.array([[math.cos(omega), -math.sin(omega), 0]
+                         [math.sin(omega), math.cos(omega), 0]
+                         [0,0,1]])
+    
+    pos_orbital_plane = np.array([x_op, y_op,0])
+    vel_orbital_plane = np.array([x_vel_op,y_vel_op,0])
+
+    rotation_matrix = Rz_Omega @ Rx_i @ Rz_omega
+
+    position_rotated = rotation_matrix @ pos_orbital_plane
+    velocity_rotated = rotation_matrix @ vel_orbital_plane
+
+    position = position_rotated[:2]
+    velocity = velocity_rotated[:2]
+
+    return position, velocity
+
+def calculate_semi_major_axis_from_energy(energy: float, mu: float) -> float:
+    if energy == 0.0:
+        return float('inf')
+    return -mu / (2 * energy)
+
+def calculate_mean_motion(a: float, mu: float) -> float:
+    return math.sqrt(mu / (a ** 3))
+
+def calculate_time_of_periapsis_passage(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    M = elements.true_anamoly
+    n = calculate_mean_motion(elements.semi_major_axis, G * (body.mass + central_body.mass))
+    t = M / n if n != 0 else 0
+    return t
+
+def calculate_apoapsis_periapsis_distances(a: float, e: float) -> Tuple[float, float]:
+    r_peri = a * (1-e)
+    r_apo = a * (1 + e)
+    return r_peri, r_apo
+
+def propagate_orbit_fixed_step(body: BodyProperties, central_body: BodyProperties, dt: float, gravity_config: GravityConfig) -> None:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    mu = G * (body.mass + central_body.mass)
+    n = calculate_mean_motion(elements.semi_major_axis, mu)
+    time_since_periapsis = dt + calculate_time_of_periapsis_passage(body, central_body)
+    M = (n * time_since_periapsis) % (2 * math.pi)
+    E = convert_mean_anamoly_to_eccentric_anamoly(M,elements.eccentricity)
+    true_anomaly = 2 * math.atan2(math.sqrt(1 + elements.eccentricity) * math.sin(E / 2), math.sqrt(1 - elements.eccentricity) * math.cos(E / 2))
+    r = orbit_radius_from_the_true_anomaly(elements.semi_major_axis, elements.eccentricity, true_anomaly)
+    x = r * math.cos(true_anomaly)
+    y = r * math.sin(true_anomaly)
+    body.position = central_body.position + np.array([x,y])
+    body.velocity = central_body.velocity + np.array([-math.sin(E), math.sqrt(1 - elements.eccentricity ** 2) * math.cos(E)]) * math.sqrt(mu / elements.semi_major_axis) / (1 - elements.eccentricity * math.cos(E))
+
+def compute_orbit_collision_time(body1: BodyProperties, body2: BodyProperties, central_body: BodyProperties, gravity_config = GravityConfig) -> Optional[float]:
+    elements1 = calculate_orbital_elements(body1, central_body, gravity_config)
+    elements2 = calculate_orbital_elements(body2, central_body, gravity_config)
+    if elements1.semi_major_axis == float('inf') or elements2.semi_major_axis ** float('inf'):
+        return None
+    
+    dt1 = calculate_time_of_periapsis_passage(body1, central_body, gravity_config)
+    dt2 = calculate_time_of_periapsis_passage(body2, central_body, gravity_config)
+    #Orbital periods have to be same for stability
+    period1 = elements1.orbital_period
+    period2 = elements2.orbital_period
+    t = 0.0
+    max_time = min(period1,period2)
+    step = 1e5
+    while t < max_time:
+        true_anomaly1 = calculate_true_anomaly_at_time(t,dt1, period1, elements1.eccentricity)
+        true_anomaly2 = calculate_true_anomaly_at_time(t, dt2, period2, elements2.eccentricity)
+        r1 = orbit_radius_from_the_true_anomaly(elements1.semi_major_axis,elements1.eccentricity,true_anomaly1)
+        r2 = orbit_radius_from_the_true_anomaly(elements2.semi_major_axis,elements2.eccentricity, true_anomaly2)
+        if abs(r1-r2) < (body1.radius + body2.radius):
+            return t
+        t += step
+    return None
