@@ -699,3 +699,216 @@ def spherical_to_cartesian(r: float, theta: float, phi: float) -> np.ndarray:
 
 def inclination_difference(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
     return abs(elements1.inclination - elements2.inclination)
+
+def ascending_node_seperation(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    return abs(elements1.longitude_of_ascending_node - elements2.longitude_of_ascending_node) % (2 * math.pi)
+
+def periapsis_distance(elements: OrbitalElements) -> float:
+    return elements.semi_major_axis * (1 - elements.eccentricity)
+
+def apoapsis_distance(elements: OrbitalElements) -> float:
+    return elements.semi_major_axis * (1 + elements.eccentricity)
+
+def orbit_energy_differnce(elements1: OrbitalElements, elements2: OrbitalElements, mu:float) -> float:
+    a1 = elements1.semi_major_axis
+    a2 = elements2.semi_major_axis
+    E1 = -mu / (2 * a1)
+    E2 = -mu / (2 * a2)
+    return abs(E1 - E2)
+
+def advance_orbit_by_anomaly(body: BodyProperties, central_body: BodyProperties, anomaly_change: float, gravity_config: GravityConfig) -> None:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    new_true_anomaly = (elements.true_anamoly + anomaly_change) % (2 * math.pi)
+    position, velocity = calculate_orbit_state_from_elements(OrbitalElements(
+        semi_major_axis=elements.semi_major_axis,
+        eccentricity=elements.eccentricity,
+        inclination=elements.inclination,
+        longitude_of_ascending_node=elements.longitude_of_ascending_node,
+        argument_of_periapsis=elements.argument_of_periapsis,
+        true_anomaly = new_true_anomaly,
+        orbital_period=elements.orbital_period,
+        specific_angular_momentum=elements.specific_angular_momentum
+    ),
+    central_body)
+    body.position = position
+    body.velocity =velocity
+
+def barycenter(bodies: List[BodyProperties]) -> np.ndarray:
+    total_mass = sum(b.mass for b in bodies)
+    return sum((b.mass * b.position for b in bodies),
+               np.zeros_like(bodies[0].position)) / total_mass
+
+def total_angular_momentum(bodies: List[BodyProperties], refernce: Optional[np.ndarray] = None) -> np.ndarray:
+    if refernce is None:
+        refernce = barycenter(bodies)
+
+    total_L = np.zeros(3)
+    for b in bodies:
+        r_rel = np.append(b.position - refernce, 0)
+        v_rel = np.append(b.velocity, 0)
+        total_L += b.mass * np.cross(r_rel,v_rel)
+        return total_L
+    
+def phase_space_trajectory(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, duration: float, dt: float) -> Dict[str, np.ndarray]:
+    num_steps = int(duration // dt)
+    phase_trajectories = {i: [] for i in range(len(bodies))}
+    for step in range(num_steps):
+        for i, body in enumerate(bodies):
+            propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+            phase_trajectories[i].append(np.concatenate([body.position, body.velocity]))
+    return {k: np.array(v) for k, v in phase_trajectories.items()}
+
+def tot_energy(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    return sum(calculate_orbital_energy(b, central_body, gravity_config) for b in bodies)
+
+def tot_momentum(bodies: List[BodyProperties]) -> np.ndarray:
+    return sum(b.mass * b.velocity for b in bodies)
+
+def orbit_drift_analysis(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, dt: float, total_time: float) -> Dict[str, float]:
+    elements_initial = calculate_orbital_elements(body, central_body, gravity_config)
+    positions = []
+    times = []
+    for t in np.arange(0, total_time, dt):
+        propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+        positions.append(body.position.copy())
+        times.append(t)
+    elements_final = calculate_orbital_elements(body, central_body, gravity_config)
+    drift_a = abs(elements_final.semi_major_axis - elements_initial.semi_major_axis)
+    drift_e = abs(elements_final.eccentricity - elements_initial.eccentricity)
+    drift_i = abs(elements_final.inclination - elements_initial.inclination)
+    return {"drift_a": drift_a, "drift_e": drift_e, "drift_i": drift_i}
+
+def orbit_alignment_metric(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    inc1 = elements1.inclination
+    inc2 = elements2.inclination
+    Omega1 = elements1.longitude_of_ascending_node
+    Omega2 = elements2.longitude_of_ascending_node
+    metric = (math.cos(inc1) * math.cos(inc2) +
+              math.sin(inc1) * math.sin(inc2) *
+              math.cos(Omega1 - Omega2))
+    return metric
+
+def random_orbital_elements(mu: float, semi_major_axis_range: Tuple[float, float], eccentricity_range: Tuple[float, float],
+                           inclination_range: Tuple[float, float], omega_range: Tuple[float, float], Omega_range: Tuple[float, float], nu_range: Tuple[float, float]) -> OrbitalElements:
+    a = np.random.uniform(*semi_major_axis_range)
+    e = np.random.uniform(*eccentricity_range)
+    i = np.random.uniform(*inclination_range)
+    omega = np.random.uniform(*omega_range)
+    Omega = np.random.uniform(*Omega_range)
+    nu = np.random.uniform(*nu_range)
+    period = 2 * math.pi * math.sqrt(a ** 3 / mu)
+    h_vec = np.array([0., 0., math.sqrt(mu * a * (1 - e ** 2))])
+    return OrbitalElements(
+        semi_major_axis=a,
+        eccentricity=e,
+        inclination=i,
+        longitude_of_ascending_node=Omega,
+        argument_of_periapsis=omega,
+        true_anomaly=nu,
+        orbital_period=period,
+        specific_angular_momentum=h_vec[:2]
+    )
+
+def orbit_cluster_centroid(elements_list: List[OrbitalElements]) -> OrbitalElements:
+    a = np.mean([el.semi_major_axis for el in elements_list])
+    e = np.mean([el.eccentricity for el in elements_list])
+    i = np.mean([el.inclination for el in elements_list])
+    Omega = np.mean([el.longitude_of_ascending_node for el in elements_list])
+    omega = np.mean([el.argument_of_periapsis for el in elements_list])
+    nu = np.mean([el.true_anomaly for el in elements_list])
+    period = np.mean([el.orbital_period for el in elements_list])
+    sam = np.mean([el.specific_angular_momentum for el in elements_list], axis=0)
+    return OrbitalElements(
+        semi_major_axis=a, eccentricity=e, inclination=i,
+        longitude_of_ascending_node=Omega, argument_of_periapsis=omega,
+        true_anomaly=nu, orbital_period=period, specific_angular_momentum=sam
+    )
+
+def find_all_resonant_pairs(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, tol: float = 1e-4) -> List[Tuple[int, int, float, float]]:
+    elements_list = [calculate_orbital_elements(b, central_body, gravity_config) for b in bodies]
+    pairs = []
+    for i in range(len(elements_list)):
+        for j in range(i+1, len(elements_list)):
+            T1 = elements_list[i].orbital_period
+            T2 = elements_list[j].orbital_period
+            if T1 == 0 or T2 == 0:
+                continue
+            ratio = T1 / T2
+            round_ratio = round(ratio)
+            deviation = abs(ratio - round_ratio)
+            if deviation < tol:
+                pairs.append((i, j, ratio, deviation))
+    return pairs
+
+def orbit_precession(elements: OrbitalElements, mass_perturber: float, central_mass: float, a_perturber: float) -> float:
+    a = elements.semi_major_axis
+    e = elements.eccentricity
+    n = math.sqrt(G * central_mass / a ** 3)
+    alpha = a / a_perturber
+    b = laplace_coefficient(1.5, alpha)
+    return n * (mass_perturber / central_mass) * alpha * b
+
+def set_orbit_elements_to_body(body: BodyProperties, central_body: BodyProperties, elements: OrbitalElements):
+    position, velocity = calculate_orbit_state_from_elements(elements, central_body)
+    body.position = position
+    body.velocity = velocity
+
+def evolve_body_with_nbody(bodies: List[BodyProperties], central_body: BodyProperties, dt: float, gravity_integrator: GravityIntegrator, steps: int):
+    for _ in range(steps):
+        gravity_integrator.integrate_step(bodies + [central_body], dt)
+
+def minimum_energy_transfer_time(a1: float, a2: float, mu: float) -> float:
+    return math.pi * math.sqrt(((a1 + a2) / 2) ** 3 / mu)
+
+def serialize_orbital_elements(elements: OrbitalElements) -> dict:
+    return {
+        "semi_major_axis": elements.semi_major_axis,
+        "eccentricity": elements.eccentricity,
+        "inclination": elements.inclination,
+        "longitude_of_ascending_node": elements.longitude_of_ascending_node,
+        "argument_of_periapsis": elements.argument_of_periapsis,
+        "true_anomaly": elements.true_anomaly,
+        "orbital_period": elements.orbital_period,
+        "specific_angular_momentum": elements.specific_angular_momentum.tolist() if hasattr(elements.specific_angular_momentum, 'tolist') else elements.specific_angular_momentum
+    }
+
+def orbit_batch_prop_epochs(bodies: List[BodyProperties], central_body: BodyProperties, dt: float, epochs: int, gravity_config: GravityConfig) -> List[List[np.ndarray]]:
+    all_positions = []
+    for body in bodies:
+        pos_series = []
+        for epoch in range(epochs):
+            propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+            pos_series.append(body.position.copy())
+        all_positions.append(pos_series)
+    return all_positions
+
+def orbit_match_score(elements1: OrbitalElements, elements2: OrbitalElements, weights: Optional[dict] = None) -> float:
+    if weights is None:
+        weights = {
+            "a": 1.0, "e": 1.0, "i": 1.0, "O": 1.0, "o": 1.0, "nu": 1.0
+        }
+    score = (weights['a'] * abs(elements1.semi_major_axis - elements2.semi_major_axis) +
+             weights['e'] * abs(elements1.eccentricity - elements2.eccentricity) +
+             weights['i'] * abs(elements1.inclination - elements2.inclination) +
+             weights['O'] * abs(elements1.longitude_of_ascending_node - elements2.longitude_of_ascending_node) +
+             weights['o'] * abs(elements1.argument_of_periapsis - elements2.argument_of_periapsis) +
+             weights['nu'] * abs(elements1.true_anomaly - elements2.true_anomaly))
+    return score
+
+def migration_due_to_drag(body: BodyProperties, central_body: BodyProperties, drag_coeff: float, dt: float, gravity_config: GravityConfig) -> None:
+    velocity = body.velocity - central_body.velocity
+    damping = 1 - drag_coeff * dt
+    body.velocity = central_body.velocity + velocity * damping
+    propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+
+def is_coplanar(elements1: OrbitalElements, elements2: OrbitalElements, tol: float = 1e-5) -> bool:
+    return abs(elements1.inclination - elements2.inclination) < tol
+
+def time_to_periapsis_from_true_anomaly(a: float, e: float, true_anomaly: float, mu: float) -> float:
+    E = 2 * math.atan(math.sqrt((1 - e) / (1 + e)) * math.tan(true_anomaly / 2))
+    M = E - e * math.sin(E)
+    n = math.sqrt(mu / a ** 3)
+    return M / n
+
+def batch_orbit_parameters(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> List[dict]:
+    return [serialize_orbital_elements(calculate_orbital_elements(b, central_body, gravity_config)) for b in bodies]
