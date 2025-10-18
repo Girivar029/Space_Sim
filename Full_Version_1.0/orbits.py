@@ -525,3 +525,177 @@ def compute_orbit_distance(body: BodyProperties, central_body: BodyProperties, g
     radii = [orbit_radius_from_the_true_anomaly(elements.semi_major_axis, elements.eccentricity, v) for v in angles]
     return np.array(radii)
 
+def check_orbit_period_error(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    calculated_period = orbital_period_from_semi_major_axis(elements.semi_major_axis, central_body.mass)
+    actual_period = elements.orbital_period
+    return abs(calculated_period - actual_period)
+
+def check_orbit_circularity(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, tolerance = 1e-5) -> bool:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    return abs(elements.eccentricity) < tolerance
+
+def compute_next_periapsis(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, t_current: float) -> float:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    period = elements.orbital_period
+    M = elements.true_anamoly
+    n = calculate_mean_motion(elements.semi_major_axis, G * (body.mass + central_body.mass))
+    t_peri = t_current - M / n if n != 0 else t_current
+    return t_peri + period
+
+def mean_longitude(elements: OrbitalElements) -> float:
+    return (elements.longitude_of_ascending_node + elements.argument_of_periapsis + elements.true_anamoly) % (2 * math.pi)
+
+def anomaly_difference(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    ml1 = mean_longitude(elements1)
+    ml2 = mean_longitude(elements2)
+    diff = abs((ml1 - ml2 + math.pi) % (2 * math.pi) - math.pi)
+    return diff
+
+def mutual_inclination(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    i1 = elements1.inclination
+    i2 = elements2.inclination
+    Omega1 = elements1.longitude_of_ascending_node
+    Omega2 = elements2.longitude_of_ascending_node
+    return math.acos(
+        math.cos(i1) * math.cos(i2) + 
+        math.sin(i1) * math.sin(i2) * math.cos(Omega1 - Omega2)
+    )
+
+def laplace_coefficient(s: float, alpha: float, m: int = 0, max_terms: int = 100) -> float:
+    coeff = 0.0
+    for k in range(max_terms):
+        coeff += math.comb(s + k,k) * (alpha ** k) / (k + m + 1)
+    return coeff
+
+def secular_apsidal_precession_rate(elements: OrbitalElements, other_elements: OrbitalElements, mass_perturber: float, central_mass: float) -> float:
+    a = elements.semi_major_axis
+    a_p = other_elements.semi_major_axis
+    e = elements.eccentricity
+    n = math.sqrt(G * central_mass / a **3)
+    alpha = a / a_p
+    return n * (mass_perturber / central_mass) * alpha * laplace_coefficient(1.5, alpha)
+
+def mean_motion(elements: OrbitalElements, central_mass: float) -> float:
+    return math.sqrt(G * central_mass / elements.semi_major_axis ** 3)
+
+def longitude_of_periapsis(elements: OrbitalElements) -> float:
+    return (elements.longitude_of_ascending_node + elements.argument_of_periapsis) % (2 * math.pi)
+
+def spherical_to_cartesian(r: float, theta: float,phi: float) -> np.ndarray:
+    x = r * math.sin(theta) * math.cos(phi)
+    y = r * math.sin(theta) * math.sin(phi)
+    z = r * math.cos(theta)
+    return np.array([x, y, z])
+
+def inclination_difference(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    return abs(elements1.inclination - elements2.inclination)
+
+def ascending_node_seperation(elements: OrbitalElements) -> float:
+    return elements.semi_major_axis * (1 - elements.eccentricity)
+
+def orbit_energy_difference(elements1: OrbitalElements, elements2: OrbitalElements, mu: float) -> float:
+    a1 = elements1.semi_major_axis
+    a2 = elements2.semi_major_axis
+    E1 = -mu / (2 * a1)
+    E2 = -mu / (2 * a2)
+    return abs(E1 -E2)
+
+def advance_orbit_by_anomaly(body: BodyProperties, central_body: BodyProperties, anomaly_change: float, gravity_config: GravityConfig) -> None:
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    new_true_anomaly = (elements.true_anamoly + anomaly_change) % (2 * math.pi)
+    position, velocity = calculate_orbit_state_from_elements(OrbitalElements(
+        semi_major_axis=elements.semi_major_axis,
+        eccentricity=elements.eccentricity,
+        inclination=elements.inclination,
+        longitude_of_ascending_node= elements.longitude_of_ascending_node,
+        argument_of_periapsis=elements.argument_of_periapsis,
+        true_anamoly=new_true_anomaly,
+        orbital_period=elements.orbital_period,
+        specific_angular_momentum=elements.specific_angular_momentum
+        ),
+        central_body
+        )
+
+    body.position = position
+    body.velocity = velocity
+
+def barycenter(bodies: List[BodyProperties]) -> np.ndarray:
+    total_mass = sum(b.mass for b in bodies)
+    return sum((b.mass * b.position for b in bodies), np.zeros_like(bodies[0].position)) / total_mass
+
+def total_angular_momentum(bodies: List[BodyProperties], reference: Optional[np.ndarray] = None) -> np.ndarray:
+    if reference is None:
+        reference = barycenter(bodies)
+    total_L = np.zeros(3)
+    for b in bodies:
+        r_rel = np.append(b.position - reference, 0)
+        v_rel = np.append(b.velocity,0)
+        total_L += b.mass * np.cross(r_rel, v_rel)
+    return total_L
+
+def phase_space_trajectory(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, duration: float, dt: float) -> Dict[str, np.ndarray]:
+    num_steps = int(duration // dt)
+    phase_trajectories = {i: [] for i in range(len(bodies))}
+    for step in range(num_steps):
+        for i, body in enumerate(bodies):
+            propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+            phase_trajectories[i].append(np.concatenate([body.position, body.velocity]))
+
+    return {k: np.array(v) for k, v in phase_trajectories.item()}
+
+def tot_energy(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    return sum(b.mass * b.velocity for b in bodies)
+
+def orbit_drift_analysis(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, dt: float, total_time: float) -> Dict[str, float]:
+    elements_inital = calculate_orbital_elements(body, central_body, gravity_config)
+    positions = []
+    times = []
+    for t in np.arange(0, total_time, dt):
+        propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+        positions.append(body.position.copy())
+        times.append(t)
+    elements_final = calculate_orbital_elements(body, central_body, gravity_config)
+    drift_a = abs(elements_final.semi_major_axis - elements_inital.semi_major_axis)
+    drift_e = abs(elements_final.eccentricity - elements_inital.eccentricity)
+    drift_i = abs(elements_final.inclination - elements_inital.inclination)
+    return {"drift_a": drift_a,"drift_e": drift_e,"drift_i": drift_i}
+
+def orbit_alignment_metric(elements1:OrbitalElements, elements2: OrbitalElements) -> float:
+        i1  = elements1.inclination
+        i2 = elements2.inclination
+        Omega1 = elements1.longitude_of_ascending_node
+        Omega2 = elements2.longitude_of_ascending_node
+        return math.acos(
+            math.cos(i1) * math.cos(i2) + 
+            math.sin(i1) * math.sin(i2) * math.cos(Omega1 - Omega2)
+        )
+
+def laplace_coefficient(s: float, alpha: float,m: int = 0, max_terms: int = 100) -> float:
+    coeff = 0.0
+    for k in range(max_terms):
+        coeff += math.comb(s + k, k) * (alpha ** k) / (k + m +1)
+    return coeff
+
+def secular_apsidal_precession_rate(elements: OrbitalElements, other_elements: OrbitalElements, mass_perturber: float, central_mass: float) -> float:
+    a = elements.semi_major_axis
+    a_p = other_elements.semi_major_axis
+    e = elements.eccentricity
+    n = math.sqrt(G * central_mass / a ** 3)
+    alpha = a / a_p
+    return n * (mass_perturber / central_mass) * alpha * laplace_coefficient(1.5, alpha)
+
+def mean_motion(elements: OrbitalElements, central_mass: float) -> float:
+    return math.sqrt(G * central_mass / elements.semi_major_axis ** 3)
+
+def longitude_of_periapsis(elements: OrbitalElements) -> float:
+    return (elements.longitude_of_ascending_node + elements.argument_of_periapsis) % (2 * math.pi)
+
+def spherical_to_cartesian(r: float, theta: float, phi: float) -> np.ndarray:
+    x = r * math.sin(theta) * math.cos(phi)
+    y = r * math.sin(theta) * math.sin(phi)
+    z = r * math.cos(theta)
+    return np.array([x,y,z])
+
+def inclination_difference(elements1: OrbitalElements, elements2: OrbitalElements) -> float:
+    return abs(elements1.inclination - elements2.inclination)
