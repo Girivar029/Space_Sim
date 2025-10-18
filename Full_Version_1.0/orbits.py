@@ -385,3 +385,143 @@ def compute_orbit_collision_time(body1: BodyProperties, body2: BodyProperties, c
             return t
         t += step
     return None
+
+def generate_orbit_points(elements: OrbitalElements, central_body: BodyProperties, num_points: int = 360) -> np.ndarray:
+    a = elements.semi_major_axis
+    e = elements.eccentricity
+    i = elements.inclination
+    Omega = elements.longitude_of_ascending_node
+    omega = elements.argument_of_periapsis
+    mu = G * central_body.mass
+    angles = np.linspace(0, 2 * math.pi, num_points, endpoint=False)
+    orbit_points = []
+    Rz_Omega = np.array([[math.cos(Omega), -math.sin(Omega),0],
+                         [math.sin(Omega), math.cos(Omega),0],
+                         [0,0,1]])
+    Rx_i = np.array([[1,0,0],
+                     [0, math.cos(i), - math.sin(i)],
+                     [0, math.sin(i), math.cos(i)]])
+    
+    Rz_omega = np.array([[math.cos(omega), - math.sin(omega),0],
+                         [math.sin(omega), math.cos(omega),0],
+                         [0,0,1]])
+    rotation_matrix = Rz_Omega @ Rx_i @ Rz_omega
+    for nu in angles:
+        r = orbit_radius_from_the_true_anomaly(a,e,nu)
+        pos = np.array([r * math.cos(nu), r * math.sin(nu),0])
+        pos_rotated = rotation_matrix @ pos
+        orbit_points.append(central_body.position + pos_rotated[:2])
+        return np.array(orbit_points)
+
+def orbit_to_ephemeris(elements: OrbitalElements, central_body: BodyProperties, epoch: float, dt: float, n_steps: int) -> Tuple[np.ndarray, np.ndarray]:
+    points = []
+    velocities = []
+    mu = G * central_body.mass
+    for k in range(n_steps):
+        t = epoch + k * dt
+        period = orbital_period_from_semi_major_axis(elements.semi_major_axis,central_body.mass)
+        nu = calculate_true_anomaly_at_time(t, 0, period, elements.eccentricity, nu)
+        pos, vel = calculate_orbit_state_from_elements(elements, central_body)
+        points.append(pos)
+        velocities.append(vel)
+    return np.array(points), np.array(velocities)
+
+def find_orbital_resonance(body1: BodyProperties, body2: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig) -> Optional[float]:
+    elements1 = calculate_orbital_elements(body1,central_body,gravity_config)
+    elements2 = calculate_orbital_elements(body2, central_body, gravity_config)
+    period1 = elements1.orbital_period
+    period2 = elements2.orbital_period
+    if period1 == float('inf') or period2 == float('inf'):
+        return None
+    
+    ratio = period1 / period2
+    best_match = None
+    best_error = float('inf')
+    for p in range(1,10):
+        for q in range(1,10):
+            if q == 0:
+                continue
+
+            error = abs((p/q) - ratio)
+            if error < best_error:
+                best_error = error
+                best_match = (p,q)
+    return best_match
+
+def compute_orbit_intersection(body1: BodyProperties, body2: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, tol = 1e-2) -> Optional[Tuple[np.ndarray,float]]:
+    elements1 = calculate_orbital_elements(body1, central_body, gravity_config)
+    elements2 = calculate_orbital_elements(body2, central_body, gravity_config)
+    a1, e1 = elements1.semi_major_axis, elements1.eccentricity
+    a2, e2 = elements2.semi_major_axis, elements2.eccentricity
+    points1 = generate_orbit_points(elements1, central_body, num_points=360)
+    points2 = generate_orbit_points(elements2, central_body, num_points=360)
+    for pt1 in points1:
+        for pt2 in points2:
+            dist = np.linalg.norm(pt1 - pt2)
+            if dist < tol:
+                return pt1, dist
+    return None
+
+def compute_transfer_delta_v(body: BodyProperties, central_body: BodyProperties, target_radius: float, gravity_config: GravityConfig) -> Tuple[float, float]:
+    r1 = np.linalg.norm(body.position - central_body.position)
+    v1 = np.linalg.norm(body.velocity - central_body.velocity)
+    v_circ1 = calculate_orbital_velocity(r1,central_body.mass)
+    v_circ2 = calculate_orbital_velocity(target_radius, central_body.mass)
+    v_trans_a = math.sqrt(2*G*central_body.mass*target_radius/(r1*(r1+target_radius)))
+    v_trans_b = math.sqrt(2*G*central_body*r1/(target_radius*(r1+target_radius)))
+    delta_v1 = abs(v_trans_a - v_circ1)
+    delta_v2 = abs(v_circ2 - v_trans_b)
+    return delta_v1, delta_v2
+
+def hohmann_transfer_planet(body: BodyProperties, central_body: BodyProperties, final_radius: float, gravity_config: GravityConfig, outpit_steps = 128) -> Dict:
+    r1 = np.linalg.norm(body.position - central_body.position)
+    r2 = final_radius
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
+    mu = G * central_body.mass
+    a_trans = (r1 + r2) / 2
+    period_trans = 2 * math.pi * math.sqrt(a_trans**3/mu)
+    points = []
+    velocities = []
+    for k in range(outpit_steps):
+        nu = 2*math.pi*k/outpit_steps
+        r = orbit_radius_from_the_true_anomaly(a_trans,0,nu)
+        x = r * math.cos(nu)
+        y = r * math.sin(nu)
+        pos = central_body.position + np.array([x,y])
+        vel_mag = math.sqrt(mu * (2/r-1/a_trans))
+        vel = np.array([-math.sin(nu), math.cos(nu)]) * vel_mag
+        points.append(pos)
+        velocities.append(pos)
+    
+    delta_v1, delta_v2 = compute_transfer_delta_v(body, central_body, r1,gravity_config)
+    return {
+        'transfer_points': np.array(points),
+        'transfer_velocitites': np.array(velocities),
+        'a_transfer': a_trans,
+        'period_transfer': period_trans,
+        'delta_v1': delta_v1,
+        'delta_v2': delta_v2
+    }
+
+def apply_orbit_maneuver(body: BodyProperties, maneuver_vector:np.ndarray) -> None:
+    body.velocity += maneuver_vector
+
+def orbit_simulation_step(bodies: OrbitalElements, central_body: BodyProperties, gravity_config: GravityConfig, dt: float, method: str = "rk4"):
+    for body in bodies:
+        if method == "euler":
+            propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+        elif method == "rk4":
+            propagate_orbit_rk4(body, central_body, dt, gravity_config)
+        else:
+            propagate_orbit_fixed_step(body, central_body, dt, gravity_config)
+
+def is_ecliptic_crossing(body: BodyProperties, central_body: BodyProperties,gravity_config: GravityConfig) -> bool:
+    elements = calculate_orbital_elements(body,central_body ,gravity_config)
+    return abs(elements.inclination) < 1e-5
+
+def compute_orbit_distance(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, n_points: int = 256) -> np.ndarray:
+    elements = calculate_orbital_elements(body,central_body,gravity_config)
+    angles = np.linspace(0, 2 * math.pi, n_points, endpoint=False)
+    radii = [orbit_radius_from_the_true_anomaly(elements.semi_major_axis, elements.eccentricity, v) for v in angles]
+    return np.array(radii)
+
