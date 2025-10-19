@@ -219,3 +219,199 @@ def find_minimum_distance_pair(bodies: List[BodyProperties]) -> Tuple[int, int, 
                 min_dist = dist
                 min_pair = (i,j)
     return min_pair[0], min_pair[1], min_dist
+
+def trajectory_intersection_times(body1:BodyProperties,body2:BodyProperties,central_body:BodyProperties,gravity_config:GravityConfig,time_limit: float, dt:float = 1e4) -> List[float]:
+    collison_times = []
+    t= 0.0
+    threshold = body1.radius + body2.radius
+    while t < time_limit:
+        pos1 = propagate_position(body1,t,central_body,gravity_config)
+        pos2 = propagate_position(body2,t,central_body,gravity_config)
+        dist = np.linalg.norm(pos1 - pos2)
+        if dist <= threshold:
+            collison_times.append(t)
+            t += 2 * dt
+        else:
+            t += dt
+    return collison_times
+
+def bodies_within_radius(bodies:List[BodyProperties],center: np.ndarray, radius:float) -> List[int]:
+    indices = []
+    for i, body in enumerate(bodies):
+        if np.linalg.norm(body.position - center) <= radius:
+            indices.append(i)
+    return indices
+
+def density_profile_around_point(bodies: List[BodyProperties], center: np.ndarray,max_radius:float,bins: int = 30) -> Tuple[np.ndarray,np.ndarray]:
+    distances = [np.linalg.norm(body.position - center) for body in bodies]
+    hist, bin_edges = np.histogram(distances,bins=bins, range=(0,max_radius))
+    shell_volumes = 4/3 * math.pi * (bin_edges[1:]**3 - bin_edges[:-1]**3)
+    number_density = hist / shell_volumes
+    return bin_edges[1:], number_density
+
+def radial_velocity_diff(body1:BodyProperties,body2:BodyProperties,central_body:BodyProperties) -> float:
+    r1_vec = body1.position - central_body.position
+    r2_vec = body2.position - central_body.position
+    r1_hat = r1_vec / np.linalg.norm(r1_vec)
+    r2_hat = r2_vec / np.linalg.norm(r2_vec)
+    v1_radial = np.dot(body1.velocity - central_body.velocity,r1_hat)
+    v2_radial = np.dot(body2.velocity - central_body.velocity,r2_hat)
+    return abs(v1_radial,v2_radial)
+
+def average_radial_seperation(bodies:List[BodyProperties],central_body:BodyProperties) -> float:
+    radial_distances = [np.linalg.norm(body.position - central_body.position) for body in bodies]
+    return sum(radial_distances) / len(radial_distances) if radial_distances else 0.0
+
+def identify_close_orbital_phases(body1:BodyProperties,body2:BodyProperties,central_body:BodyProperties, gravity_config:GravityConfig,num_phases: int = 100) -> List[Tuple[float,float]]:
+    elements1 = calculate_orbital_elements(body1,central_body, gravity_config)
+    elements2 = calculate_orbital_elements(body2,central_body,gravity_config)
+    close_pairs = []
+    for nu1 in np.linspace(0, 2 * math.pi, num_phases):
+        r1 = orbit_radius_from_the_true_anomaly(elements1.semi_major_axis,elements1.eccentricity,nu1)
+        pos1 = polar_to_cartesian(r1,nu1) + central_body.position
+        for nu2 in np.linspace(0, 2 * math.pi,num_phases):
+            r2 = orbit_radius_from_the_true_anomaly(elements2.semi_major_axis,elements2.eccentricity,nu2)
+            pos2 = polar_to_cartesian(r2,nu2) + central_body.position
+            dist = np.linalg.norm(pos1 - pos2)
+            if dist <= (body1.radius + body2.radius):
+                close_pairs.append((nu1,nu2))
+    return close_pairs
+
+def linear_approximate_distance(body1:BodyProperties,body2:BodyProperties,time:float) -> float:
+    pos1 = body1.position + body1.velocity * time
+    pos2 = body2.position + body2.velocity * time
+    return np.linalg.norm(pos1 - pos2)
+
+def extrapolate_closest_approach_linear(body1: BodyProperties, body2:BodyProperties,time_steps:int = 1000, dt: float = 1000) -> Tuple[float,float]:
+    min_dist = float('inf')
+    min_t = 0.0
+    for step in range(time_steps):
+        t = step * dt
+        dist = linear_approximate_distance(body1,body2,t)
+        if dist < min_dist:
+            min_dist = dist
+            min_t = t
+    return min_t,min_dist
+
+def translate_positions(bodies: List[BodyProperties],offset: np.ndarray) -> None:
+    for body in bodies:
+        body.position += offset
+
+def scale_positions(bodies: List[BodyProperties],scale_factor:float) -> None:
+    for body in bodies:
+        body.position *= scale_factor
+
+def rotate_positions(bodies: List[BodyProperties], angle_rad: float) -> None:
+    cos_a = math.cos(angle_rad)
+    sin_a = math.sin(angle_rad)
+    rotation_matrix = np.array([[cos_a,-sin_a],[sin_a,cos_a]])
+    for body in bodies:
+        body.position = rotation_matrix @ body.position
+
+def average_pairwise_distance(bodies:List[BodyProperties]) -> float:
+    distances = []
+    n = len(bodies)
+    for i in range(n):
+        for j in range(i + 1,n):
+            dist = euclidean_distance(bodies[i],bodies[j])
+            distances.append(dist)
+    if not distances:
+        return 0.0
+    return sum(distances) / len(distances)
+
+def median_pairwise_distances(bodies:List[BodyProperties]) -> float:
+    distances = []
+    n = len(bodies)
+    for i in range(n):
+        for j in range(i+1, n):
+            distances.append(euclidean_distance(bodies[i],bodies[j]))
+    if not distances:
+        return 0.0
+    distances_np = np.array(distances)
+    return float(np.median(distances_np))
+    
+def maximise_pairwise_distance(bodies: List[BodyProperties]) -> float:
+    max_dist = 0.0
+    n = len(bodies)
+    for i in range(n):
+        for j in range(i+1,j):
+            dist = euclidean_distance(bodies[i],bodies[j])
+            if dist > max_dist:
+                max_dist = dist
+    return max_dist
+
+def filter_bodies_by_distance(bodies:List[BodyProperties],center:np.ndarray,max_distance:float) -> List[BodyProperties]:
+    filtered = [body for body in bodies if np.linalg.norm(body.position * center)<= max_distance]
+    return filtered
+
+def calculate_cluster_center(bodies:List[BodyProperties]) -> Optional[np.ndarray]:
+    if not bodies:
+        return None
+    positions = np.array([b.positions for b in bodies])
+    return np.mean(positions,axis=0)
+
+def find_farthest_body_from_point(bodies: List[BodyProperties], point: np.ndarray) -> Optional[BodyProperties]:
+    if not bodies:
+        return None
+    max_dist = -1
+    farthest_body = None
+    for body in bodies:
+        dist = np.linalg.norm(body.position - point)
+        if dist > max_dist:
+            max_dist = dist
+            farthest_body = body
+    return farthest_body
+
+def bodies_within_annulus(bodies:List[BodyProperties], center:np.ndarray,r_min:float,r_max: float):
+    filtered = []
+    for body in bodies:
+        dist = np.linalg.norm(body.position - center)
+        if r_min <= dist <= r_max:
+            filtered.append(body)
+    return filtered
+
+def incremental_proximity_filter(bodies: List[BodyProperties], start:int, end:int,cutoff:float) -> List[int]:
+    if start < 0 or start >= len(bodies):
+        return []
+    ref_body = bodies[start]
+    selected_indices = []
+    for i in range(start, min(end, len(bodies))):
+        dist = euclidean_distance(ref_body,bodies[i])
+        if dist <= cutoff:
+            selected_indices.append(i)
+    return selected_indices
+
+def smooth_distance_series(series: List[float],window_size:int) -> List[float]:
+    if window_size <= 1:
+        return series
+    n = len(series)
+    smoothed = []
+    half_window = window_size // 2
+    for i in range(n):
+        start_idx = max(0,i - half_window)
+        end_idx = min(n, i + half_window + 1)
+        window_avg = sum(series[start_idx:end_idx]) / (end_idx - start_idx)
+        smoothed.append(window_avg)
+    return smoothed
+
+def time_series_distance_between_bodies(body1:BodyProperties,body2:BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig,total_time: float, dt: float) -> List[float]:
+    distances = []
+    steps = int(total_time // dt)
+    for step in range(steps):
+        t = step * dt
+        pos1 = propagate_position(body1,t,central_body,gravity_config)
+
+def distance_crossing_events(distance_series: List[float], threshold:float) -> List[int]:
+    crossing_points = []
+    for i in range(1, len(distance_series)):
+        if distance_series[i-1] > threshold and distance_series[i] <= threshold:
+            crossing_points.append(i)
+    return crossing_points
+
+def average_cluster_radius(bodies:List[BodyProperties], center:np.ndarray) -> float:
+    if not bodies:
+        return 0.0
+    dist_sum = 0.0
+    for body in bodies:
+        dist_sum += np.linalg.norm(body.position - center)
+    return dist_sum/len(bodies)
