@@ -415,3 +415,77 @@ def average_cluster_radius(bodies:List[BodyProperties], center:np.ndarray) -> fl
     for body in bodies:
         dist_sum += np.linalg.norm(body.position - center)
     return dist_sum/len(bodies)
+
+def bounding_box(bodies: List[BodyProperties]) -> Tuple[np.ndarray,np.ndarray]:
+    positions = np.array([b.position for b in bodies])
+    min_corner = np.min(positions, axis = 0)
+    max_corner = np.max(positions, axis=0)
+    return min_corner, max_corner
+
+def body_distance_to_line(body: BodyProperties, point_a: np.ndarray, point_b: np.ndarray) -> float:
+    p = body.position
+    a_to_p = p - point_a
+    a_to_b = point_b - point_a
+    line_length = np.linalg.norm(a_to_b)
+    if line_length == 0.0:
+        return np.linalg.norm(a_to_p)
+    proj = np.dot(a_to_p,a_to_b) / line_length
+    closest = point_a + (proj / line_length) * a_to_b
+    return np.linalg.norm(p - closest)
+
+def within_sector(bodies: List[BodyProperties], vertex: np.ndarray, ang1: float, ang2: float,rmax:float) -> List[BodyProperties]:
+    results = []
+    dtheta = (ang2 - ang1) % (2 * math.pi)
+    for b in bodies:
+        rel = b.position - vertex
+        dist = np.linalg.norm(rel)
+        theta = math.atan2(rel[1], rel[0] % (2 * math.pi))
+        if dist <= rmax:
+            compare = (theta - ang1) % (2 * math.pi)
+            if compare <= dtheta:
+                results.append(b)
+    return results
+
+def trajectory_proximity(body: BodyProperties, trajectory: List[np.ndarray], threshold: float) -> bool:
+    for pos in trajectory:
+        if np.linalg.norm(body.position - pos) < threshold:
+            return True
+        
+    return False
+
+def min_distance_to_trajectory(body: BodyProperties, trajectory: List[np.ndarray]) -> float:
+    return min(np.linalg.norm(body.position - pos) for pos in trajectory)
+
+def radial_density_histogram(bodies: List[BodyProperties], origin: np.ndarray, max_radius: float, n_bins: int = 30) -> Tuple[np.ndarray,np.ndarray]:
+    dists = [np.linalg.norm(body.position - origin)for body in bodies]
+    hist, bin_edges = np.histogram(dists, bins = n_bins, range = (0, max_radius))
+    return hist, bin_edges
+
+def circular_overlap_fraction(bodies: List[BodyProperties], test_center: np.ndarray, test_radius: float) -> float:
+    inside = 0
+    for b in bodies:
+        if np.linalg.norm(b.position - test_center) <= test_radius:
+            inside += 1
+    return inside / len(bodies) if bodies else 0.0
+
+def distance_heatmap(bodies: List[BodyProperties], grid_x: np.ndarray, grid_y: np.ndarray) -> np.ndarray:
+    heatmap = np.zeros((len(grid_x),len(grid_y)))
+    for ix, x in enumerate([grid_x]):
+        for iy, y in enumerate(grid_y):
+            pos = np.ndarray([x,y])
+            inv_sum = 0.0
+            for b in bodies:
+                dist = np.linalg.norm(pos - b.position)
+                if dist > 0:
+                    inv_sum += 1.0 / dist
+                    heatmap[ix,iy] = inv_sum
+    return heatmap
+
+def bodies_outside_radius(bodies: List[BodyProperties], center: np.ndarray, radius: float) -> List[BodyProperties]:
+    return [b for b in bodies if np.linalg.norm(b.position - center) > radius]
+
+def moving_average_distance(distances: List[float], k: int) -> List[float]:
+    n = len(distances)
+    if k < 1 or k >= n: return distances
+    return [sum(distances[max(0,i-k+1): i + 1]) / min(k,i+1) for i in range(n)]
+
