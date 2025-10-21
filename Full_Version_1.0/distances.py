@@ -809,3 +809,6 @@ def all_bodies_nearest_neighbour_distances(bodies: List[BodyProperties], central
                     min_dist = d
         dists.append(min_dist)
     return dists
+
+def region_body_proportion(bodies: List[BodyProperties], region_center: np.ndarray, region_radius: float, time: float, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    positions = []
