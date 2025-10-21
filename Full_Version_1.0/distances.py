@@ -738,3 +738,74 @@ def cluster_centroid_dispersion_series(bodies:List[BodyProperties],central_body:
         dists = [np.linalg.norm(p - centroid)for p in positions]
         series.append(np.std(dists))
     return series
+
+def distance_crossing_time_series(bodies: List[BodyProperties],central_body:BodyProperties, gravity_config:GravityConfig,threshold: float,total_time:float,dt:float) -> List[Tuple[float,int,int]]:
+    steps = int(total_time // dt)
+    events = []
+    n = len(bodies)
+    for step in range(1, steps):
+        t_prev = (step-1) * dt
+        t_now = step * dt
+        positions_prev = [propagate_position(b,t_prev,central_body,gravity_config)for b in bodies]
+        positions_now = [propagate_position(b,t_now,central_body,gravity_config)for b in bodies]
+        for i in range(n):
+            for j in range(i+1,j):
+                d_prev = np.linalg.norm(positions_prev[i] - positions_prev[j])
+                d_now = np.linalg.norm(positions_now[i - positions_now[j]])
+                if d_prev > threshold and d_now <= threshold:
+                    events.append((t_now,i,j))
+    return events
+
+def region_occupancy_matrix(bodies: List[BodyProperties],regions: List[Tuple[np.ndarray, float]]) -> np.ndarray:
+    n = len(bodies)
+    m = len(regions)
+    occ = np.zeros((n,m))
+    for i, body in enumerate(bodies):
+        for j,(center,radius) in enumerate(regions):
+            if np.linalg.norm(body.position - center) <= radius:
+                occ[i,j] = 1
+    return occ
+
+def track_distance_histogram(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig,bins: int,total_time: float, dt: float) -> Tuple[np.ndarray,np.ndarray]:
+    steps = int(total_time // dt)
+    distances = []
+    n = len(bodies)
+    for step in range(steps):
+        t = steps * dt
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        for i in range(n):
+            for j in range(i+1,n):
+                distances.append(np.linalg.norm(positions[i] -positions[j]))
+    hist, edges = np.histogram(distances, bins = bins)
+    return hist, edges
+
+def max_distance_jumps(bodies: List[BodyProperties],central_body: BodyProperties, gravity_config: GravityConfig, total_time: float, dt: float) -> List[Tuple[float,float]]:
+    steps = int(total_time // dt)
+    n = len(bodies)
+    max_jumps = []
+    prev_positions = [b.positions.copy() for b in bodies]
+    for step in range(1, steps):
+        t = step * dt
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        jump_max = 0.0
+        for i in range(n):
+            d = np.linalg.norm(positions[i] - prev_positions[i])
+            if d > jump_max:
+                jump_max = d
+        max_jumps.append(t, jump_max)
+        prev_positions = positions
+    return max_jumps
+
+def all_bodies_nearest_neighbour_distances(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, time: float) -> List[float]:
+    positions = [propagate_position[b,time,central_body,gravity_config]for b in bodies]
+    dists = []
+    n = len(positions)
+    for i in range(n):
+        min_dist = float('inf')
+        for j in range(i+1,j):
+            if i != j:
+                d = np.linalg.norm(positions[i],positions[j])
+                if d < min_dist:
+                    min_dist = d
+        dists.append(min_dist)
+    return dists
