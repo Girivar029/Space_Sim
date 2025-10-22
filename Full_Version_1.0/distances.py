@@ -811,4 +811,188 @@ def all_bodies_nearest_neighbour_distances(bodies: List[BodyProperties], central
     return dists
 
 def region_body_proportion(bodies: List[BodyProperties], region_center: np.ndarray, region_radius: float, time: float, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
-    positions = []
+    positions = [propagate_position(b,time,central_body, gravity_config)for b in bodies]
+    count = 0
+    for p in positions:
+        if np.linalg.norm(p - region_center) <= region_radius:
+            count += 1
+    return count / len(bodies) if bodies else 0.0
+
+def cumlative_region_occupancy_over_time(bodies: List[BodyProperties], region_center: float,region_radius: float, central_body: BodyProperties, gravity_config: GravityConfig, total_time: float, dt: float) -> List[int]:
+    steps = int(total_time // dt)
+    counts = []
+    for step in range(steps):
+        t = step * dt
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        count = 0
+        for p in positions:
+            if np.linalg.norm(p - region_center) <= region_radius:
+                count += 1
+        counts.append(count)
+    return counts
+
+def main_cluster_dispersal_variation(bodies: List[BodyProperties],total_time: float,dt: float,central_body: BodyProperties, gravity_config: GravityConfig) -> Dict[str, float]:
+    dispersal = track_cluster_dispersion(bodies,total_time,dt,central_body,gravity_config)
+    arr = np.array(dispersal)
+    min_val = np.min(arr)
+    max_val = np.max(arr)
+    mean_val = np.mean(arr)
+    std_val = np.std(arr)
+    return {"min": min_val,"max": max_val,"mean": mean_val,"std":std_val}
+
+def body_track_rolling_average(body: BodyProperties, central_body:BodyProperties, gravity_config: GravityConfig, total_time: float,dt:float,window: int) -> List[float]:
+    samples = int(total_time // dt)
+    values = []
+    for step in range(samples):
+        pos = propagate_position(body,step * dt, central_body, gravity_config)
+        dist = np.linalg.norm(pos - central_body.position)
+        values.append(dist)
+    smoothed = []
+    for i in range(samples):
+        start = max(0, i-window+1)
+        wavg = sum(values[start:i+1]) / (i+1-start)
+        smoothed.append(wavg)
+    return smoothed
+
+def multi_region_occupancy(bodies: List[BodyProperties], regions: List[Tuple[np.ndarray,np.ndarray]],times: float,central_body: BodyProperties,gravity_config: GravityConfig) -> Dict[float,np.ndarray]:
+    occupancy = []
+    for t in times:
+        occ = np.zeros((len(bodies),len(regions)))
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        for i,pos in enumerate(positions):
+            for j,(center,radius) in enumerate(regions):
+                if np.linalg.norm(pos - center) < radius:
+                    occ[i,j] = 1
+        occupancy[t] = occ
+    return occupancy
+
+def proximity_time_grid(bodies:List[BodyProperties], total_time: float, dt:float, central_body: float, gravity_config: GravityConfig,proximity: float) -> np.ndarray:
+    steps = int(total_time // dt)
+    n = len(bodies)
+    grid = np.zeros((steps,n,n))
+    for step in range(steps):
+        t = step * dt
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        for i in range(n):
+            for j in range(i+1,n):
+                d = np.linalg.norm(positions[i] - positions[j])
+                if d < proximity:
+                    grid[step,i,j] = 1
+                    grid[step,j,i] = 1
+    return grid
+
+def body_position_path(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, total_time: float,dt: float) -> List[np.ndarray]:
+    steps = int(total_time // dt)
+    path = []
+    for step in range(steps):
+        t = step * dt
+        pos = propagate_position(body, t, central_body,gravity_config)
+        path.append(pos)
+    return path
+
+def collective_centroid_over_time(bodies: List[BodyProperties], central_body: BodyProperties,gravity_config:GravityConfig,total_time: float,dt: float) -> List[np.ndarray]:
+    steps = int(total_time // dt)
+    centroids = []
+    for step in range(steps):
+        t = step * dt
+        positions = [propagate_position(b,t,central_body,gravity_config)for b in bodies]
+        centroid = np.mean(positions, axis = 0)
+        centroids.append(centroid)
+    return centroids
+
+def intercluster_distance(clusters:List[List[BodyProperties]]) -> np.ndarray:
+    n = len(clusters)
+    matrix = np.zeros((n,n))
+    centroids = [np.mean([b.position for b in cluster], axis = 0)for cluster in clusters]
+    for i in range(n):
+        for j in range(i+1,j):
+            d = np.linalg.norm(centroids[i] - centroids[j])
+            matrix[i,j] = d
+            matrix[j,i] = d
+    return matrix
+
+def rolling_minimum_distance(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig,total_time: float,dt: float, window_size: int) -> List[float]:
+    min_series = minimum_distance_time_series(bodies,central_body,gravity_config,total_time,dt)
+    smooth = []
+    for i in range(len(min_series)):
+        start = max(0,i - window_size // 2)
+        end = min(len(min_series),i+window_size//2+1)
+        window = min_series[start:end]
+        smooth.append(min(window))
+    return smooth
+
+def rolling_maximum_distance(bodies: List[BodyProperties],central_body: BodyProperties, gravity_config: GravityConfig, total_time: float, dt: float, window_size: int) -> List[float]:
+    max_series = maximum_distance_time_series(bodies,central_body,gravity_config,total_time,dt)
+    smooth = []
+    for i in range(len(max_series)):
+        start = max(0,i-window_size//2)
+        end = min(len(max_series),i+window_size//2+1)
+        window = max_series[start:end]
+        smooth.append(max(window))
+    return smooth
+
+def boundary_crossings(bodies: List[BodyProperties], boundary_center: np.ndarray,boundary_radius: float, central_body: BodyProperties,gravity_config: GravityConfig,total_time: float,dt: float) -> Dict[int,List[float]]:
+    steps = int(total_time // dt)
+    crossings = {i: [] for i in range(len(bodies))}
+    for step in range(1,steps):
+        t_prev = (step-1) * dt
+        t_now = step * dt
+        positions_prev = [propagate_position(b,t_prev,central_body,gravity_config) for b in bodies]
+        positions_now = [propagate_position(b,t_now,central_body,gravity_config)for b in bodies]
+        for i in range(len(bodies)):
+            r_prev = np.linalg.norm(positions_prev[i] - boundary_center)
+            r_now = np.linalg.norm(positions_now[i] - boundary_center)
+            if r_prev > boundary_radius and r_now <= boundary_radius:
+                crossings[i].append(t_now)
+    return crossings
+
+def density_heatmap(bodies: List[BodyProperties],bounds:Tuple[np.ndarray,np.ndarray],bins:int) -> np.ndarray:
+    min_corner,max_corner = bounds
+    xedges = np.linspace(min_corner[0],max_corner[0],bins + 1)
+    yedges = np.linspace(min_corner[1],max_corner[1],bins + 1)
+    positions = np.array([b.positions for b in bodies])
+    hist,_,_ = np.histogram2d(positions[:,0],positions[:,1],bins=[xedges,yedges])
+    return hist
+
+def chase_simulation_states(body1: BodyProperties,body2: BodyProperties,central_body: BodyProperties,gravity_config: GravityConfig, total_time:float,dt:float) -> List[bool]:
+    steps = int(total_time // dt)
+    results = []
+    for step in range(steps):
+        t = step * dt
+        pos1 = propagate_position(body1,t,central_body,gravity_config)
+        pos2 = propagate_position(body2,t,central_body,gravity_config)
+        delta_p = pos2 - pos1
+        if np.dot(delta_p,body2.velocity - body1.velocity):
+            results.append(True)
+        else:
+            results.append(False)
+    return results
+
+def approach_closest_event(body1:BodyProperties, body2: BodyProperties,central_body: BodyProperties,gravity_config: GravityConfig,total_time:float,dt:float) -> float:
+    last_dist = float('inf')
+    closest_t = 0.0
+    steps = int(total_time // dt)
+    for step in range(steps):
+        t = step * dt
+        pos1 = propagate_position(body1,t,central_body, gravity_config)
+        pos2 = propagate_position(body2,t,central_body,gravity_config)
+        dist = np.linalg.norm(pos1 - pos2)
+        if dist < last_dist:
+            last_dist = dist
+            closest_t = t
+    return closest_t
+
+def absolute_mean_distance_matrix(bodies: List[BodyProperties], sample_times: List[float],central_body: BodyProperties,gravity_config: GravityConfig) -> np.ndarray:
+    n = len(bodies)
+    avg_matrix = np.zeros((n,n))
+    for i in range(n):
+        for j in range(i+1,n):
+            values =[]
+            for t in sample_times:
+                pos_i = propagate_position(bodies[i],t,central_body,gravity_config)
+                pos_j = propagate_position(bodies[j],t,central_body,gravity_config)
+                values.append(np.linalg.norm(pos_i - pos_j))
+            mean_val = np.mean(values)
+            avg_matrix[i,j] = mean_val
+            avg_matrix[j,i] = mean_val
+    return avg_matrix
