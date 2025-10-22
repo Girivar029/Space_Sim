@@ -691,4 +691,138 @@ def simulate_probabilistic_collision_outcomes(bodies:List[BodyProperties], gravi
             break
         current_bodies = new_bodies
     return current_bodies
+#Break for a while
 
+def calculate_fragment_escape_velocity(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
+    r = np.linalg.norm(body.position - central_body.mass)
+    mu = gravity_config.G * (body.mass + central_body.mass)
+    return np.sqrt(2 * mu / r)
+
+def filter_escpaing_fragments(debris_list: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> list:
+    escaping = []
+    for fragment in debris_list:
+        v_rel = np.linalg.norm(fragment.velocity - central_body.velocity)
+        v_escape = calculate_fragment_escape_velocity(fragment,central_body, gravity_config)
+        if v_rel > v_escape:
+            escaping.append(fragment)
+    return escaping
+
+def calculate_accretion_probability(body1: BodyProperties, body2: BodyProperties, impact_velocity:float) -> float:
+    relative_mass = min(body1.mass,body2.mass) / max(body1.mass, body2.mass)
+    if impact_velocity < 500:
+        return 1.0
+    elif impact_velocity < 2000:
+        return 0.5 + 0.5 * (1 - relative_mass)
+    else:
+        return 0.1
+    
+def simulate_accretion_process(bodies:List[BodyProperties],gravity_config: GravityConfig, accretion_threshold: float = 0.75) -> list:
+    n = len(bodies)
+    updated_bodies = bodies[:]
+    for i in range(n):
+        for j in range(i+1,n):
+            b1, b2 = updated_bodies[i],updated_bodies[j]
+            if b1 is None or b2 is None: continue
+            dist = euclidean_distance(b1,b2)
+            if dist < b1.radius + b2.radius:
+                impact_velocity = np.linalg.norm(b1.velocity - b2.velocity)
+                prob = calculate_accretion_probability(b1,b2,impact_velocity)
+                if prob > accretion_threshold:
+                    merged = merge_bodies(b1,b2)
+                    updated_bodies[i] = merged
+                    updated_bodies[j] = None
+    return [b for b in updated_bodies if b is not None]
+
+def create_collision_remnant(body1: BodyProperties, body2: BodyProperties,impulse: float) -> float:
+    total_mass = body1.mass + body2.mass
+    new_pos = (body1.position * body1.mass + body2.position * body2.mass)
+    new_vel = (body1.velocity * body1.mass + body2.velocity * body2.mass)
+    new_radius = (body1.radius**2 + body2.radius**3) ** (1/3)
+    return BodyProperties(new_pos, new_vel, total_mass, new_radius, "remnant")
+
+def calculate_impact_angular_momentum(body1: BodyProperties, body2: BodyProperties) -> float:
+    r_vec = body1.position - body2.position
+    v_vec = body1.velocity - body2.velocity
+    return np.linalg.norm(np.cross(r_vec,v_vec)) * min(body1.mass,body2.mass)
+
+def sample_impact_parameter(max_radius: float) -> float:
+    return np.random.uniform(0, max_radius)
+
+def simulate_fragment_reaccumalation(fragments: List[BodyProperties], gravity_config: GravityConfig, total_time: float,dt:float) -> list:
+    n = len(fragments)
+    current_fragments = fragments[:]
+    steps = int(total_time // dt)
+    for _ in range(steps):
+        positions = [f.position for f in current_fragments]
+        merged_indices = set()
+        for i in range(n):
+            for j in range(i+1,n):
+                if i in merged_indices or j in merged_indices:
+                    continue
+                dist = np.linalg.norm(positions[i] - positions[j])
+                radius_sum = current_fragments[i].radius + current_fragments[j].radius
+                if dist < radius_sum:
+                    merged = merge_bodies(current_fragments[i], current_fragments[j])
+                    current_fragments[i] = merged
+                    current_fragments[j] = None
+                    merged_indices.add(j)
+        current_fragments = [f for f in current_fragments if f is not None]
+        n = len(current_fragments)
+    return current_fragments
+
+def calculate_collision_velocity_distribution(collisions:list) -> tuple:
+    velocities = [np.linalg.norm(c[1].velocity - c[0].velocity)for c in collisions]
+    mean_v = np.mean(velocities) if velocities else 0.0
+    std_v = np.std(velocities) if velocities else 0.0
+    return mean_v, std_v
+
+def simulate_gravitation_binding_evolution(bodies: List[BodyProperties], gravity_config: GravityConfig, total_time: float, dt: float) -> list:
+    bonded_clusters = []
+    steps = int(total_time // dt)
+    for step in range(steps):
+        clusters = []
+        visited = set()
+        for i,b1 in enumerate(bodies):
+            if i in visited:
+                continue
+            cluster = [i]
+            visited.add(i)
+            for j,b2 in enumerate(bodies):
+                if j != i and j not in visited:
+                    e_kin = 0.5 - b2.mass * np.linalg.norm(b2.velocity - b1.velocity)**2
+                    r_dist = np.linalg.norm(b2.position - b1.position)
+                    e_pot = gravity_config.G * b1.mass * b2.mass / r_dist if r_dist > 0 else float('inf')
+                    if e_kin < e_pot:
+                        cluster.append(j)
+                        visited.add(j)
+            clusters.append(cluster)
+        bonded_clusters.append(clusters)
+    return bonded_clusters
+
+def assign_masses_to_clusters(clusters: list, bodies: List[BodyProperties]) -> list:
+    cluster_masses = []
+    for cluster in clusters:
+        mass_sum = sum(bodies[i].mass for i in cluster)
+        cluster_masses.append(mass_sum)
+    return cluster_masses
+
+def merge_clustered_bodies(clusters: list, bodies: List[BodyProperties]) -> list:
+    merged_bodies = []
+    for cluster in clusters:
+        if len(cluster) == 1:
+            merge_bodies.append(bodies[cluster[0]])
+        else:
+            cluster_mass = 0.0
+            cluster_pos = np.zeros(2)
+            cluster_vel = np.zeros(2)
+            for idx in cluster:
+                b = bodies[idx]
+                cluster_pos += b.position * b.mass
+                cluster_vel += b.velocity * b.mass
+                cluster_mass += b.mass
+            cluster_pos /= cluster_mass
+            cluster_vel /= cluster_mass
+            cluster_radius = sum(bodies[idx].radius for idx in cluster) / len(cluster)
+            merged_body = BodyProperties(cluster_pos,cluster_vel,cluster_mass,cluster_radius,"merged")
+            merged_bodies.append(merged_body)
+    return merged_bodies

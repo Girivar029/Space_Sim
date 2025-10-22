@@ -121,3 +121,28 @@
 -Linear Algebra for Rotation and Coordinate Transformation
 -Statistical Measure Computation
 -Event driven Proximity detection
+
+
+#Collisions#
+
+#Theories Used
+-Newtonian Mechanics of Collisions
+-Conservation Of Momentum
+-Conservation Of Mass
+-Kinetic Energy and Impact Energy Calculations
+-Elastic and Inelastic Collision Models
+-Catastrophic Fragmentation Theory
+-Merging and Accertion Physics
+-Debris Cloud Formation And Dispersion
+-Moon Formation via Giant Impact Hypothesis
+-Gravitational Binding and Escape Velocity
+-Orbital Energy Calculations
+-Angular Momentum Transfer and Loss
+-Impact Parameter Sampling
+-Probabilistic Collision Outcome Models
+-Fragment Reaccumulation Dynamics
+-Energy Budget and Conservation in Collision Systems
+-Tidal Disruption and Englufment Clouds
+-Mass Redistribution After Impact
+-Velocity Dispersion in Fragment Clouds
+-Statisitical Mechanics of CLusters and Aggretates
