@@ -7,6 +7,7 @@ from orbits import calculate_orbital_elements, orbit_radius_from_the_true_anomal
 def euclidean_distance(body1: BodyProperties, body2: BodyProperties) -> float:
     return np.linalg.norm(body1.position - body2.position)
 
+
 def polar_to_cartesian(r: float, theta: float) -> np.ndarray:
     return np.array([r * np.cos(theta), r * np.sin(theta)])
 
@@ -33,15 +34,15 @@ def is_collision_likely(body1: BodyProperties, body2: BodyProperties, distance_t
     return actual_distance <= distance_threshold
 
 def propagate_position(body: BodyProperties, time: float, central_body: BodyProperties, gravity_config: GravityConfig) -> np.ndarray:
-    elements = calculate_orbital_elements(body,central_body, gravity_config)
+    elements = calculate_orbital_elements(body, central_body, gravity_config)
     mu = G * (body.mass + central_body.mass)
     n = np.sqrt(mu / elements.semi_major_axis ** 3)
     M = n * time
     E = solve_kepler(M, elements.eccentricity)
     true_anomaly = 2 * np.arctan2(np.sqrt(1 + elements.eccentricity) * np.sin(E / 2), np.sqrt(1 - elements.eccentricity) * np.cos(E / 2))
     r = orbit_radius_from_the_true_anomaly(elements.semi_major_axis, elements.eccentricity, true_anomaly)
-    pos = polar_to_cartesian(r, true_anomaly)
-    return central_body.position
+    pos = polar_to_cartesian(r, true_anomaly) + central_body.position
+    return pos
 
 def closest_approach_time(body1: BodyProperties, body2: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, max_time: float, dt: float = 1e4) -> Optional[float]:
     t = 0.0
@@ -57,14 +58,10 @@ def closest_approach_time(body1: BodyProperties, body2: BodyProperties, central_
         t += dt
     return min_t
 
-def sitances_matrix(bodies: List[BodyProperties]) -> np.ndarray:
-    n = len(bodies)
-    matrix = np.zeros((n,n))
-    for i in range(n):
-        for j in range(i + 1,n):
-            dist = euclidean_distance(bodies[i], bodies[j])
-            matrix[i,j] = dist
-            matrix[j,i] = dist
+def distances_matrix(bodies: List[BodyProperties]) -> np.ndarray:
+    positions = np.array([b.position for b in bodies])
+    diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]  # shape (n, n, dim)
+    matrix = np.linalg.norm(diff, axis=-1)
     return matrix
 
 def find_close_pairs(bodies: List[BodyProperties],threshold:float) -> List[Tuple[int, int]]:
@@ -76,15 +73,20 @@ def find_close_pairs(bodies: List[BodyProperties],threshold:float) -> List[Tuple
                 pairs.append((i,j))
     return pairs
 
-def find_colliding_pairs(bodies: List[BodyProperties]) -> List[Tuple[int,int]]:
-    pairs = []
+def find_colliding_pairs(bodies: List[BodyProperties]) -> List[Tuple[int, int]]:
+    positions = np.array([b.position for b in bodies])
+    radii = np.array([b.radius for b in bodies])
     n = len(bodies)
-    for i in range(n):
-        for j in range(i+1,n):
-            r_sum = bodies[i].radius + bodies[j].radius
-            if euclidean_distance(bodies[i],bodies[j]) <= r_sum:
-                pairs.append((i,j))
+    pairs = []
+    # Compute all pairwise distances with broadcasting
+    diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
+    dists = np.linalg.norm(diff, axis=2)
+    rsum = radii[:, np.newaxis] + radii[np.newaxis, :]
+    colliding_indices = np.transpose(np.nonzero((dists <= rsum) & (np.triu(np.ones((n, n)), k=1) == 1)))
+    for i, j in colliding_indices:
+        pairs.append((i, j))
     return pairs
+
 
 def radial_distance_variation(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, num_samples: int = 360) -> Tuple[float,float]:
     elements = calculate_orbital_elements(body, central_body, gravity_config)
@@ -796,19 +798,13 @@ def max_distance_jumps(bodies: List[BodyProperties],central_body: BodyProperties
         prev_positions = positions
     return max_jumps
 
-def all_bodies_nearest_neighbour_distances(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, time: float) -> List[float]:
-    positions = [propagate_position[b,time,central_body,gravity_config]for b in bodies]
-    dists = []
-    n = len(positions)
-    for i in range(n):
-        min_dist = float('inf')
-        for j in range(i+1,j):
-            if i != j:
-                d = np.linalg.norm(positions[i],positions[j])
-                if d < min_dist:
-                    min_dist = d
-        dists.append(min_dist)
-    return dists
+def all_bodies_nearest_neighbour_distances(bodies: List[BodyProperties]) -> List[float]:
+    positions = np.array([b.position for b in bodies])
+    diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]  # shape (n, n, dim)
+    dists = np.linalg.norm(diff, axis=2)
+    np.fill_diagonal(dists, np.inf)  # Ignore self-distance
+    min_distances = np.min(dists, axis=1)
+    return min_distances.tolist()
 
 def region_body_proportion(bodies: List[BodyProperties], region_center: np.ndarray, region_radius: float, time: float, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
     positions = [propagate_position(b,time,central_body, gravity_config)for b in bodies]

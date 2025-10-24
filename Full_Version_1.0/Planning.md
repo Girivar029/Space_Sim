@@ -146,3 +146,8 @@
 -Mass Redistribution After Impact
 -Velocity Dispersion in Fragment Clouds
 -Statisitical Mechanics of CLusters and Aggretates
+
+
+#Physics#
+
+This will be divided into different classes each for a central physics, orbital mechanics, distance and proximity, collision handling, energy and angular momentum monitoring, event logging and history tracking, modular execution, scalability and UI and output classes.

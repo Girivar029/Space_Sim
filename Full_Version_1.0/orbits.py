@@ -497,11 +497,12 @@ def compute_orbit_intersection(body1: BodyProperties, body2: BodyProperties, cen
     a2, e2 = elements2.semi_major_axis, elements2.eccentricity
     points1 = generate_orbit_points(elements1, central_body, num_points=360)
     points2 = generate_orbit_points(elements2, central_body, num_points=360)
-    for pt1 in points1:
-        for pt2 in points2:
-            dist = np.linalg.norm(pt1 - pt2)
-            if dist < tol:
-                return pt1, dist
+    diffs = np.min(dists)
+    dists = np.linalg.nom(diffs, axis = 2)
+    min_dist = np.min(dists)
+    if min_dist < tol:
+        idx = np.unravel_index(np.argmin(dists,axis = None),dists.shape)
+        return points1[idx[0]], min_dist
     return None
 
 def compute_transfer_delta_v(body: BodyProperties, central_body: BodyProperties, target_radius: float, gravity_config: GravityConfig) -> Tuple[float, float]:
@@ -890,18 +891,24 @@ def orbit_cluster_centroid(elements_list: List[OrbitalElements]) -> OrbitalEleme
 def find_all_resonant_pairs(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig, tol: float = 1e-4) -> List[Tuple[int, int, float, float]]:
     elements_list = [calculate_orbital_elements(b, central_body, gravity_config) for b in bodies]
     pairs = []
-    for i in range(len(elements_list)):
-        for j in range(i+1, len(elements_list)):
-            T1 = elements_list[i].orbital_period
-            T2 = elements_list[j].orbital_period
-            if T1 == 0 or T2 == 0:
-                continue
-            ratio = T1 / T2
-            round_ratio = round(ratio)
-            deviation = abs(ratio - round_ratio)
-            if deviation < tol:
-                pairs.append((i, j, ratio, deviation))
+    periods = np.array([el.orbitalperiod for el in elements_list])
+    n = len(periods)
+    pairs = []
+    for i, j in zip(*np.triu_indices(n, k=1)):
+        T1, T2 = periods[i], periods[j]
+        if T1 == 0 or T2 == 0:
+            continue
+        ratio = T1 / T2
+        for p in range(1, 10):
+            for q in range(1, 10):
+                if q == 0:
+                    continue
+                error = abs(p/q - ratio)
+                if error < tol:
+                    pairs.append((i, j, ratio, error))
+                    break
     return pairs
+
 
 def orbit_precession(elements: OrbitalElements, mass_perturber: float, central_mass: float, a_perturber: float) -> float:
     a = elements.semi_major_axis

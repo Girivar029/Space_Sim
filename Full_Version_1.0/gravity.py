@@ -1046,39 +1046,34 @@ def calculate_system_energy(bodies:List[BodyProperties]) -> Tuple[float,float,fl
         velocity_squared = np.dot(body.velocity, body.velocity)
         kinetic_energy += 0.5 * body.mass * velocity_squared
 
-    potential_energy = 0.0
-    for i in range(len(bodies)):
-        for j in range(i + 1, len(bodies)):
-            direction, distance = calculate_distance_vector(bodies[i].position,bodies[j].position)
-
-            if distance > 0:
-                potential_energy -= G * bodies[i].mass * bodies[j].mass / distance
+    positions = np.array([b.position for b in bodies])
+    masses = np.array([b.mass for b in bodies])
+    n = len(bodies)
+    diff = positions[:, np.newaxis,:] - positions[np.newaxis,:,:]
+    dists = np.linalg.norm(dists,axis=2)
+    np.fill_diagonal(dists,np.inf)
+    mass_matrix = masses[:,None] * masses[None,:]
+    potential_energy = -np.sum(G * mass_matrix / dists)
 
     total_energy = kinetic_energy + potential_energy
     return kinetic_energy, potential_energy, total_energy
 
 def calculate_angular_momrntum(bodies: List[BodyProperties]) -> np.ndarray:
-    total_angular_momentum = np.array([0.0,0.0,0.0])
-
-    for body in bodies:
-        r = np.array([body.position[0],body.position[1], 0.0])
-        v = np.array([body.velocity[0],body.velocity[1],0.0])
-        L = body.mass * np.cross(r,v)
-        total_angular_momentum += L
-
+    positions = np.array([np.append(b.position, 0.0) for b in bodies]) 
+    velocities = np.array([np.append(b.velocity, 0.0) for b in bodies])  
+    masses = np.array([b.mass for b in bodies]).reshape(-1, 1)  
+    L = masses * np.cross(positions, velocities)  
+    total_angular_momentum = np.sum(L, axis=0)
     return total_angular_momentum
 
+
 def calculate_center_of_mass(bodies: List[BodyProperties]) -> Tuple[np.ndarray,np.ndarray]:
-    total_mass = sum(body.mass for body in bodies)
-
-    com_position = np.array([0.0,0.0])
-    com_velocity = np.array([0.0,0.0])
-
-    for body in bodies:
-        com_position += body.mass * body.position
-        com_velocity += body.mass * body.position
-    com_position /= total_mass
-    com_velocity /= total_mass
+    positions = np.array([b.position for b in bodies])
+    velocities = np.array([b.velocity for b in bodies])
+    masses = np.array([b.mass for b in bodies])
+    total_mass = masses.sum()
+    com_position = np.average(positions, axis = 0, weights=masses)
+    com_velocity = np.average(velocities,axis = 0,weight = masses)
     return com_position, com_velocity
 
 def calculate_virial_ratio(bodies:List[BodyProperties]) -> float:

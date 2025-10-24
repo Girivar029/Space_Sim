@@ -1,6 +1,6 @@
 #This module is to calculate midly accurate collision between different astronomical bodies
 import numpy as np
-from gravity import BodyProperties, GravityConfig
+from gravity import BodyProperties, GravityConfig, G
 from orbits import calculate_orbital_elements, orbit_radius_from_the_true_anomaly
 from distances import euclidean_distance,all_bodies_nearest_neighbour_distances,find_colliding_pairs
 from typing import Tuple, List, Optional, Dict
@@ -147,7 +147,7 @@ def catastrophic_fragmentation(body1: BodyProperties, body2: BodyProperties, imp
         fragments.append(BodyProperties(frag_pos,frag_vel,frag_mass, frag_radius, "debris"))
     return fragments
 
-def star_planet_collison_process(body1: BodyProperties,body2: BodyProperties, impact_energy: float):
+def star_planet_collision_process(body1: BodyProperties,body2: BodyProperties, impact_energy: float):
     if body1.body_type == "planet":
         planet,star = body1, body2
     else:
@@ -205,7 +205,7 @@ def advanced_collision_outcome(body1: BodyProperties, body2:BodyProperties, grav
     impact_energy = 0.5 * (body1.mass + body2.mass) * impact_velocity**2
     ctype = classify_collision_type(body1,body2)
     if ctype == "star-planet":
-        return star_planet_collison_process(body1,body2,impact_energy)
+        return star_planet_collision_process(body1,body2,impact_energy)
     elif ctype == "planet-planet":
         return planet_planet_collision_process(body1,body2)
     elif ctype == "asteroid-asteroid":
@@ -393,14 +393,24 @@ def orbital_energy_post_collision(body: BodyProperties, central_body: BodyProper
     mu = gravity_config.G * (body.mass + central_body.mass)
     return 0.5 * body.mass * v ** 2 - mu * body.mass / r
 
-def loss_of_angular_momentum_in_collision(body1: BodyProperties, body2:BodyProperties) -> float:
-    l1 = np.cross(body1.position, body1.velocity) * body1.mass
-    l2 = np.cross(body2.position,body2.velocity) * body2.mass
+def loss_of_angular_momentum_in_collision(body1: BodyProperties, body2: BodyProperties) -> float:
+    r1 = np.append(body1.position, 0)
+    v1 = np.append(body1.velocity, 0)
+    l1 = np.cross(r1, v1) * body1.mass
+
+    r2 = np.append(body2.position, 0)
+    v2 = np.append(body2.velocity, 0)
+    l2 = np.cross(r2, v2) * body2.mass
+
     merged_mass = body1.mass + body2.mass
-    merged_velocity = velocity_after_inelastic_collision(body1,body2)
+    merged_velocity = velocity_after_inelastic_collision(body1, body2)
     merged_position = (body1.position * body1.mass + body2.position * body2.mass) / merged_mass
-    l_merged = np.cross(merged_position,merged_velocity) * merged_mass
+    r_merged = np.append(merged_position, 0)
+    v_merged = np.append(merged_velocity, 0)
+    l_merged = np.cross(r_merged, v_merged) * merged_mass
+
     return np.linalg.norm(l1 + l2 - l_merged)
+
 
 def record_collision_energy_spectrum(collisions_log:dict,bodies:List[BodyProperties]) -> dict:
     spectrum = {}
@@ -462,8 +472,8 @@ def update_bodies_post_collision_cycle(bodies: List[BodyProperties], gravity_con
             new_entries.append(outcome[k])
         if "debris" in outcome and isinstance(outcome["debris"],list):
             new_entries.extend(outcome["debris"])
-        handled.add[i]
-        handled.add[j]
+        handled.add(i)
+        handled.add(j)
         new_bodies[i] = None
         new_bodies[j] = None
         new_bodies.extend(new_entries)
@@ -662,7 +672,9 @@ def assign_outcome_by_probability(body1: BodyProperties, body2: BodyProperties, 
     prob = collision_outcome_probability(body1, body2)
     impact_velocity = np.linalg.norm(body1.velocity - body2.velocity)
     if prob > 0.7:
-        return collision_outcome(body1, body2,0.5 * (body1.mass + body2.mass) * impact_velocity**2)
+        kinetic_energy = 0.5 * (body1.mass + body2.mass) * impact_velocity**2
+        return collision_outcome(body1, body2, gravity_config, impact_velocity)
+
     else:
         return collision_outcome(body1,body2,gravity_config,impact_velocity)
 
@@ -694,11 +706,11 @@ def simulate_probabilistic_collision_outcomes(bodies:List[BodyProperties], gravi
 #Break for a while
 
 def calculate_fragment_escape_velocity(body: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig) -> float:
-    r = np.linalg.norm(body.position - central_body.mass)
+    r = np.linalg.norm(body.position - central_body.position)
     mu = gravity_config.G * (body.mass + central_body.mass)
     return np.sqrt(2 * mu / r)
 
-def filter_escpaing_fragments(debris_list: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> list:
+def filter_escaping_fragments(debris_list: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> list:
     escaping = []
     for fragment in debris_list:
         v_rel = np.linalg.norm(fragment.velocity - central_body.velocity)
@@ -735,9 +747,9 @@ def simulate_accretion_process(bodies:List[BodyProperties],gravity_config: Gravi
 
 def create_collision_remnant(body1: BodyProperties, body2: BodyProperties,impulse: float) -> float:
     total_mass = body1.mass + body2.mass
-    new_pos = (body1.position * body1.mass + body2.position * body2.mass)
-    new_vel = (body1.velocity * body1.mass + body2.velocity * body2.mass)
-    new_radius = (body1.radius**2 + body2.radius**3) ** (1/3)
+    new_pos = (body1.position * body1.mass + body2.position * body2.mass) / total_mass
+    new_vel = (body1.velocity * body1.mass + body2.velocity * body2.mass) / total_mass
+    new_radius = (body1.radius**3 + body2.radius**3) ** (1/3)
     return BodyProperties(new_pos, new_vel, total_mass, new_radius, "remnant")
 
 def calculate_impact_angular_momentum(body1: BodyProperties, body2: BodyProperties) -> float:
@@ -748,7 +760,7 @@ def calculate_impact_angular_momentum(body1: BodyProperties, body2: BodyProperti
 def sample_impact_parameter(max_radius: float) -> float:
     return np.random.uniform(0, max_radius)
 
-def simulate_fragment_reaccumalation(fragments: List[BodyProperties], gravity_config: GravityConfig, total_time: float,dt:float) -> list:
+def simulate_fragment_reaccumulation(fragments: List[BodyProperties], gravity_config: GravityConfig, total_time: float,dt:float) -> list:
     n = len(fragments)
     current_fragments = fragments[:]
     steps = int(total_time // dt)
@@ -810,7 +822,7 @@ def merge_clustered_bodies(clusters: list, bodies: List[BodyProperties]) -> list
     merged_bodies = []
     for cluster in clusters:
         if len(cluster) == 1:
-            merge_bodies.append(bodies[cluster[0]])
+            merged_bodies.append(bodies[cluster[0]])
         else:
             cluster_mass = 0.0
             cluster_pos = np.zeros(2)
@@ -826,3 +838,5 @@ def merge_clustered_bodies(clusters: list, bodies: List[BodyProperties]) -> list
             merged_body = BodyProperties(cluster_pos,cluster_vel,cluster_mass,cluster_radius,"merged")
             merged_bodies.append(merged_body)
     return merged_bodies
+
+#collisions module is over
