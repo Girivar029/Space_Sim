@@ -6,7 +6,7 @@
 -Gravity.py: Gravity of planets, stars, supernovas and blackholes
 -Orbits.py: Orbital Velocity and Ordering or Reasoning for orbiting(for planets to revolve around bigger ones or stars or black holes.)
 -Distances.py: Reasoning for distances and calculations of impact of gravity
--Other_Physics: For any remaining physics formulae and reasoning
+-Physics: Combines Everything in physics.
 -Collisions.py: Accurate collisions using saved data
 
 #Camera And Input Management
@@ -20,7 +20,7 @@
 
 #UI & HUD
 -UI.py: Shows the UI on screen
--Data.py: Saves additional data for UI or HUD
+-Informations.py: Saves additional data for UI or HUD
 
 #Scenarios
 -Solar.py: Simulates the solar system as a whole
@@ -150,4 +150,4 @@
 
 #Physics#
 
-This will be divided into different classes each for a central physics, orbital mechanics, distance and proximity, collision handling, energy and angular momentum monitoring, event logging and history tracking, modular execution, scalability and UI and output classes.
+This will be divided into different classes each for a central physics, orbital mechanics, distance and proximity, collision handling, energy and angular momentum monitoring.

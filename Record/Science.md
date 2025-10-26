@@ -1,70 +1,26 @@
-Gravity.py
+###Gravity.py###
 
-##Constants##
+-Gravity is one of the fundamental forces of nature. It is used to describe the attraction between objects that have mass, essentially pulling each other towards themselves.
 
-1.Universal Gravitational Constant
-G = 6.67430 * 10^-11 
--Determines strength of gravity.
--For every force calculations.
+-Basic gravity formula given by newton is: F = G((m_1*m_2)/r^2)
 
-2.Speed of Light
-c = 299,792,458
--Max speed limit in the univere.
--Used in post newtonian calculations and other calculations.
+-General relativity: This theory by Einstein expands newton's law, and trying to explain phenomena like black holes, gravitational waves especially at high masses or very strong gravity.
 
-3.Schwazschild Radius
-r_s = 2GM/c^2
--Event horizon radius of a black hole. 
--Determines use of relativistic gravity.
+-Tidal forces: Gravity pulling closer to one side of an object, stretches it.
 
-4.Softening Parameter
-r^2 eff = r^2 + E^2
--Prevents infinte force.
--Used in force calculations.
+-Gravitational Potential: This is used to describe the potential energy landscape created by masses. High potential meaning higher gravity, making it harder to escape its sphere of influence.
+
+-Escape velocity: The minimum speed required to break free from a body's gravitational sphere of influence.
+
+-Hill sphere: This is the region around an object where its gravity dominates over others, important for orbits and moons.
 
 
-##Core Force Calculations##
+###Orbits.py###
 
-1.Newton's Law of Universal Gravitation
--Accurate for solar system calculations.
--Breaks near blackholes, high speeds and other extreme environments.
+-Orbital mechanics is the study of how objects move under the influence of gravity, especially in systems like the solar system.
 
-2.Post Newtonian Corrections
--Relativistic correction to newtonian gravity.
--Gravity is slightly stronger than what newton predicted, hence these corrections.
--Needed for high velocities, strong gravity and close orbits.
+-Keplers Laws(derived from observation of planets around the Sun)
 
-3.Schwarzschild Force
--Exact solution for gravity in spacetime near a blackhole.
--Spacetime is warped near blackholes hence, better calculations are required.
-
-4.Tidal Force
--Gravitational gradient across extended body caused stretching/compression.
--Ocean tides, Tidal heating(Jupiter), Tidal disruption(Roche limit).
-
-5.Roche limit
--Critical forces below tidal forces tear apart sattelites.
--Ring formations in saturn, uranus etc.
-
-6.Plummer Softening
--For maintaining energy conservations and smooth derivations.
-
-7.Gravitational Potential
--Scalar field representing gravitational potential energy per unit mass.
--Used for energy conservation, to show gravitational landscape, Lagrange points.
-
-8.Escape velocity
--Minimum speed to escape to infinity without further propulsion.
--Necessary in large simulations where multiple planets, stars and blackholes exist.
-
-9.Orbital velocity
--Speed needed for stable circular orbit.
-
-10.Hill sphere
--Region where sattelite's gravity dominates over central body.
--Moon orbits must be inside the Earth's Hill sphere to be stable.
-
-11.Tidal Heating Power
--Friction from tidal deformation converts orbital energy to heat.
--Potential for life in unlikely planets.
-
+1st law - Orbits are elipses, not perfect circles.
+2nd law - Objects in orbit always travel equal distance per unit of time.
+3rd law - The square of the period is propotional to the cube of the average distance.
