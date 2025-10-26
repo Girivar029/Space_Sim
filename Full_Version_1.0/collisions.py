@@ -629,11 +629,11 @@ def calculate_total_kinetic_energy(bodies: List[BodyProperties], central_body: B
         total_ke += 0.5 * b.mass * rel_vel**2
     return total_ke
 
-def calculate_total_potential_energy(bodies: List[BodyProperties], central_body: BodyProperties, gravity_constant: float) -> float:
+def calculate_total_potential_energy(bodies: List[BodyProperties], central_body: BodyProperties) -> float:
     total_pe = 0.0
     for b in bodies:
         r = np.linalg.norm(b.position - central_body.position)
-        total_pe -= gravity_constant * b.mass * central_body.mass / r if r > 0 else 0
+        total_pe -= G * b.mass * central_body.mass / r if r > 0 else 0
     return total_pe
 
 def energy_budget_report(bodies: List[BodyProperties], central_body: BodyProperties, gravity_config: GravityConfig) -> dict:
