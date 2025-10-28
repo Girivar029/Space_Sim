@@ -1,5 +1,6 @@
 import math
 from typing import Dict, List
+import time
 
 class InputState:
 
@@ -246,4 +247,68 @@ class InputMapper:
     def unbind_key(self, action:str, key:str):
         if action in self.key_bindings and key in self.key_bindings[action]:
             self.key_bindings[action].remove(key)
-            
+
+    def get_action_for_key(self,key:str):
+        for action, keys in self.key_bindings.items():
+            if key in keys:
+                return action
+        return None
+    
+    def start_macro_record(self):
+        self.recording = True
+        self.macro_steps = []
+        self.record_start_time = time.time()
+
+    def stop_macro_record(self):
+        self.recording = False
+
+    def start_macro_playback(self):
+        self.playing = True
+        self.playback_start_time = time.time()
+
+    def stop_macro_playback(self):
+        self.playing = False
+
+    def record_step(self, action:str, value:float,timestamp:float):
+        self.macro_steps.append((action, value, timestamp))
+
+    def playback_step(self, index:int):
+        if index < len(self.macro_steps):
+            action, value, timestamp = self.macro_steps[index]
+            return action, value
+        return None, None
+    
+
+class CameraPath:
+
+    def __init__(self, camera: Camera2D):
+        self.camera = camera
+        self.path_points = []
+        self.path_index = 0
+        self.cycling = False
+        self.enabled = False
+
+    def add_point(self, x:float,y:float,zoom:float):
+        self.path_points.append((x,y,zoom))
+
+    def start(self):
+        self.enabled = True
+        self.path_index = 0
+
+    def stop(self):
+        self.enabled = False
+        self.path_index = 0
+
+    def update(self, delta_time: float):
+        if self.enabled and self.path_points:
+            tx,ty,tz = self.path_points[self.path_index]
+            self.camera.targeted_zoom = tz
+            self.camera.position[0] += (tx - self.camera.position[0]) * self.camera.smooth_factor
+            self.camera.position[1] += (ty - self.camera.position[1]) * self.camera.smooth_factor
+            if abs(self.camera.position[0] - tx) < 1 and abs(self.camera.position[1] - ty) < 1 and abs(self.camera.zoom - tz) < 0.01:
+                self.path_index += 1
+                if self.path_index >= len(self.path_points):
+                    if self.cycling:
+                        self.path_index = 0
+                    else:
+                        self.enabled = False
