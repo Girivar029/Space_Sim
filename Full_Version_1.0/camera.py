@@ -1,6 +1,7 @@
-import math
 from typing import Dict, List
 import time
+import random
+import math
 
 class InputState:
 
@@ -106,7 +107,7 @@ class Camera2D:
         self.position = [0.0,0.0]
         self.velocity = [0.0,0.0]
         self.zoom = 1.0
-        self.targeted_zoom = 1.0
+        self.target_zoom = 1.0
         self.min_zoom = 0.05
         self.max_zoom = 20.0
         self.viewport_width = viewport_width
@@ -157,16 +158,16 @@ class Camera2D:
 
     def zoom_in(self, current_time:float):
         if current_time - self.last_zoom_input_time > self.zoom_cooldown:
-            self.targeted_zoom = min(self.targeted_zoom * self.zoom_speed, self.max_zoom)
+            self.target_zoom = min(self.target_zoom * self.zoom_speed, self.max_zoom)
             self.last_zoom_input_time = current_time
 
     def zoom_out(self, current_time: float):
         if current_time - self.last_zoom_input_time > self.zoom_cooldown:
-            self.targeted_zoom = max(self.targeted_zoom / self.zoom_speed,self.min_zoom)
+            self.target_zoom = max(self.target_zoom / self.zoom_speed,self.min_zoom)
             self.last_zoom_input_time = current_time
 
     def update(self, delta_time:float):
-        zoom_diff = self.targeted_zoom - self.zoom
+        zoom_diff = self.target_zoom - self.zoom
         self.zoom += zoom_diff * self.smooth_factor
         self.position[0] += self.velocity[0] * delta_time
         self.position[1] += self.velocity[1] * delta_time
@@ -302,7 +303,7 @@ class CameraPath:
     def update(self, delta_time: float):
         if self.enabled and self.path_points:
             tx,ty,tz = self.path_points[self.path_index]
-            self.camera.targeted_zoom = tz
+            self.camera.target_zoom = tz
             self.camera.position[0] += (tx - self.camera.position[0]) * self.camera.smooth_factor
             self.camera.position[1] += (ty - self.camera.position[1]) * self.camera.smooth_factor
             if abs(self.camera.position[0] - tx) < 1 and abs(self.camera.position[1] - ty) < 1 and abs(self.camera.zoom - tz) < 0.01:
@@ -312,3 +313,193 @@ class CameraPath:
                         self.path_index = 0
                     else:
                         self.enabled = False
+
+class CameraEventHooks:
+
+    def __init__(self):
+        self.hooks = {
+            "on_move": [],
+            "on_zoom": [],
+            "on_focus": [],
+            "on_transition": [],
+            "on_macro_recording": [],
+            "on_macro_playback": [],
+            "on_screen_capture": []
+        }
+        self.event_log = []
+
+    def register_hook(self, event: str, callback):
+        if event in self.hooks:
+            self.hooks[event].append(callback)
+
+    def trigger_event(self, event:str, *args):
+        if event in self.hooks:
+            for callback in self.hooks[event]:
+                callback(*args)
+        self.event_log.append((event, args, time.time()))
+
+    def get_log(self):
+        return self.event_log
+    
+
+class CameraDebug:
+
+    def __init__(self, camera: Camera2D, input_state: InputState):
+        self.camera = camera
+        self.input_state = input_state
+        self.show_debug = False
+
+    def toggle_debug (self):
+        self.show_debug = not self.show_debug
+
+    def print_state(self):
+        if self.show_debug:
+            state = self.camera.get_camera_state()
+            print("Camera State:", state)
+            print("Keys Down:",self.input_state.get_down_keys())
+            print("Mouse Position:",self.input_state.mouse_position)
+            print("Zoom:", self.camera.zoom)
+            print("Velocity:", self.camera.velocity)
+            print("")
+
+class CameraShakeEffect:
+
+    def __init__(self, camera: Camera2D):
+        self.camera = camera
+        self.amplitude = 0.0
+        self.duration = 0.0
+        self.elapsed = 0.0
+        self.enabled = False
+
+    def start_shake(self, amplitude:float, duration:float):
+        self.amplitude = amplitude
+        self.duration = duration
+        self.elapsed = 0.0
+        self.enabled = True    
+
+    def update(self, delta_time: float):
+        if self.enabled:
+            offset_x = random.uniform(-self.amplitude,self.amplitude)
+            offset_y = random.uniform(-self.amplitude,self.amplitude)
+            self.camera.position[0] += offset_x
+            self.camera.position[1] += offset_y
+            if self.elapsed >= self.duration:
+                self.enabled = False
+                self.amplitude = 0.0
+                self.duration = 0.0
+                self.elapsed = 0.0
+
+
+class CameraSmoothEasing:
+
+    def __init__(self, camera: Camera2D):
+        self.camera = camera
+
+    def ease_in_out(self, start: float, end: float, t:float) -> float:
+        t2 = t * t * (3 - 2 * t)
+        return start + (end - start) * t2
+    
+    def interpolate_zoom(self, target_zoom: float, duration: float, time_elapsed: float):
+        t = min(time_elapsed / duration, 1.0)
+        self.camera.zoom = self.ease_in_out(self.camera.zoom,target_zoom,t)
+
+
+#This probably has the most no of classes in this whole project.    
+class InputGestureRecognizer:
+    def __init__(self, input_state: InputState):
+        self.input_state = input_state
+        self.dragging = False
+        self.drag._start_pos = (0, 0)
+        self.drag_current_pos = (0, 0)
+        self.last_tap_time = 0.0
+        self.tap_count = 0
+
+    def update_drag(self):
+        if self.input_state.mouse_button_down.get(0, False):
+            if not self.dragging:
+                self.dragging = True
+                self.drag_start_pos = self.input_state.mouse_position
+            self.drag_current_pos = self.input_state.mouse_position
+        else:
+            if self.dragging:
+                self.dragging = False
+                self.drag_start_pos = (0, 0)
+                self.drag_current_pos = (0, 0)
+
+    def detect_tap(self, current_time: float):
+        tap_interval = 0.25
+        if self.input_state.mouse_buttons_pressed.get(0, False):
+            if current_time - self.last_tap_time < tap_interval:
+               self.tap_count += 1
+            else:   
+                self.tap_count = 1
+            self.last_tap_time =current_time
+
+
+    def is_double_tap(self) -> bool:
+        return self.tap_count == 2
+
+class CameraBoundaryManager:  
+    def __init__(self, camera: Camera2D):     
+        self.camera = camera
+        self.active = False
+        self.margin_x = 50
+        self.margin_y = 50
+
+    def activate(self):
+        self.active = True
+
+    def deactivate(self):
+        self.active = False
+
+    def enforce(self):
+        if not self.active: 
+            return
+        
+        if self.camera.positon[0] < self.camera.bounds_min[0] + self.margin_x:
+            self.camera.position[0] = self.camera.bounds_min[0] + self.margin_x
+
+        if self.camera.position[0] > self.camera.bounds_max[0] - self.margin_x:
+            self.camera.position[0] = self.camera.bounds_max[0] - self.margin_x
+
+        if self.camera.position[1] < self.camera.bounds_min[1] + self.margin_y:
+            self.camera.position[1] = self.camera.bounds_min[1] + self.margin_y
+
+        if self.camera.position[1] > self.camera.bounds_max[1] - self.margin_y:
+            self.camera.position[1] = self.camera.bounds_max[1] - self.margin_y
+
+
+class AdvancedInputHandler:
+
+    def __init__(self, input_state: InputState, camera: Camera2D, input_mapper: InputMapper):
+        self.input_state = input_state
+        self.camera = camera
+        self.input_mapper = input_mapper
+        self.last_update_time = time.time()
+
+    def update(self):
+        current_time = time.time()
+        delta_time = current_time - self.last_update_time
+        if self.input_state.is_key_down("left"):
+            self.camera.move(-1,0)
+        if self.input_state.is_key_down("right"):
+            self.camera.move(1,0)
+        if self.input_state.is_key_down("up"):
+            self.camera.move(0,-1)
+        if self.input_state.is_key_down("down"):
+            self.camera.move(0,1)
+        if self.input_state.is_key_down("zoom_in"):
+            self.camera.zoom_in(current_time)
+        if self.input_state.is_key_down("zoom_out"):
+            self.camera.zoom_out(current_time)
+        if self.input_state.is_key_down("focus_center"):
+            self.camera.position = [0.0,0.0]
+        if self.input_state.is_key_down("reset"):
+            self.camera.position = [0.0,0.0]
+            self.camera.zoom = 1.0
+            self.camera.target_zoom = 1.0
+            self.camera.target_zoom = 1.0
+        self.last_update_time = current_time
+        self.input_state.reset_for_frame()
+
+#Resting for a while
