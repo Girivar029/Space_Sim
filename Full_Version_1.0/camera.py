@@ -503,3 +503,54 @@ class AdvancedInputHandler:
         self.input_state.reset_for_frame()
 
 #Resting for a while
+class InputSmoothing:
+
+    def __init__(self, smoothing_factor: float = 0.15):
+        self.smoothing_factor = smoothing_factor
+        self.smoothed_x = 0.0
+        self.smoothed_y = 0.0
+
+    def smooth(self, raw_x:float, raw_y: float) -> tuple:
+        self.smoothed_x += (raw_x - self.smoothed_x) * self.smoothing_factor
+        self.smoothed_y += (raw_y - self.smoothed_y) * self.smoothing_factor
+        return self.smoothed_x, self.smoothed_y
+    
+
+class MouseInputManager:
+
+    def __init__(self, input_state: InputState):
+        self.input_state = input_state
+        self.last_position = (0,0)
+        self.movement = (0,0)
+        self.dragging = False
+        self.drag_start_position = (0,0)
+        self.drag_current_position = (0,0)
+        self.scroll_delta = 0
+
+    def update(self):
+        current_position = self.input_state.mouse_position
+        self.movement = (current_position[0] - self.last_position[0], current_position[1] - self.last_position[1])
+        self.last_position = current_position
+        self.scroll_delta = self.input_state.mouse_wheel_delta
+
+        left_down = self.input_state.mouse_buttons_downed.get(0, False)
+        if left_down and not self.dragging:
+            self.dragging = True
+            self.drag_start_position = current_position
+        elif not left_down and self.dragging:
+            self.dragging = False
+            self.drag_start_position = (0,0)
+            self.drag_current_position = (0,0)
+        if self.dragging:
+            self.drag_current_position = current_position
+
+    def get_drag_vector(self) -> tuple:
+        if self.dragging:
+            return (self.drag_current_position[0] - self.drag_start_position[0], self.drag_current_position[1] - self.drag_start_position[1])
+        return (0,0)
+    
+    def reset(self):
+        self.scroll_delta = 0
+        self.movement = (0,0)
+
+#Camera Module is Over

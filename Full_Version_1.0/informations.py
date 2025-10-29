@@ -1,3 +1,4 @@
+#This calculates everything required for the HUD/UI
 import numpy as np
 from typing import List, Dict, Optional
 from gravity import BodyProperties, G
@@ -545,3 +546,5 @@ class EcosystemModel:
             "decomposition_rate": self.decomposition_rate,
             "nutrient_level": self.nutrient_level,
         }
+    
+#Information module is over...

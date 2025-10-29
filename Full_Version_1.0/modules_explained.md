@@ -24,3 +24,5 @@ The Main.py module acts as the orchestration core for the entire simulation fram
 Input_Management'py centralizes all user input handling,including keyboard,mouse,and gamepad events.It translates raw device input into modular actions for camera movement,scenario control,and UI interaction.The module tracks input states,supports customizable key bindings,and enables special features such as macro recordind and fine-grained gesture recognition.Input_Management.py underpins user experience.facilitating responsive,flexible control of simulation navigation and system state
 
 Collisions.py specializes in detecting,modeling,and resolving physical collisions between celestial objects.It utilizes saved state data and predictive algorithms to estimate impact probabilities and physical outcomes.The module handles kinetic energy transfer,merging and fragmentation dynamics,and updates to orbital configurations post-collision.Collisions.py ensures realism and continuity in event-driven simulation,representing one of the critical physics engines for planetary evolution and interaction.
+
+
