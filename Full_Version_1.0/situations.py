@@ -149,3 +149,251 @@ class RandomGalaxyScenario:
 
         self.generate_galaxy()
 #Aiming to finish by 2nd November and as quick as possible!
+
+    def pick_spectral_class(self) -> str:
+        p = random.random()
+        cumulative = 0
+        for spec_class, prob in self.spectral_distribution:
+            cumulative += prob
+            if p <= cumulative:
+                return spec_class
+        return "M"
+    
+    def spectral_to_mass_radius(self, spectral_class:str) -> Tuple[float,float]:
+
+        mapping = {
+            "O": (16,6.6),
+            "B": (2.1,1.8),
+            "A": (1.7,1.7),
+            "F": (1.3,1.3),
+            "G": (1.0,1.0),
+            "K": (0.8,0.7),
+            "M": (0.3,0.4)
+        }
+        mass_solar, radius_solar = mapping.get(spectral_class,(1.0,1.0))
+        mass_kg = mass_solar * 1.989e30
+        radius_m = radius_solar * 6.9634e8
+        return mass_kg, radius_m
+    
+    def generate_star(self) -> BodyProperties:
+        spectral_class = self.pick_spectral_class()
+        mass, radius = self.spectral_to_mass_radius(spectral_class)
+
+        galaxy_size_ly = 100000
+        position = np.random.uniform(-galaxy_size_ly * 9.461e15, galaxy_size_ly * 9.461e15, 3)
+        body = BodyProperties(
+            mass=mass,
+            radius=radius,
+            position=position,
+            velocity=np.zeros(3),
+            spectral_type = spectral_class,
+            name=f"{spectral_class}-Star-{random.randint(1000,9999)}"
+        )
+        return body
+    
+    def generate_galaxy(self):
+        self.stars.clear()
+        self.albedos.clear()
+        self.rotation_periods.clear()
+        self.core_radius_ratios.clear()
+        self.star_colors.clear()
+
+        for _ in range(self.num_stars):
+            star = self.generate_star()
+            self.stars.append(star)
+
+            self.albedos.append(0.8)
+            self.rotation_periods.append(25 * 86400)
+            self.core_radius_ratios.append(0.55)
+
+            color = self.spectral_colors.get(star.spectral_type,(255,255,255))
+
+            self.star_colors.append(color)
+
+        self.simulation_info = SimulationInfo(
+            central_body=None,
+            bodies=self.stars,
+            albedos=self.albedos,
+            rotation_periods=self.rotation_periods,
+            core_radius_ratios=self.core_radius_ratios
+        )
+        self.simulation_info.update_all()
+
+
+    def generate_planets_for_star(self, star: BodyProperties, num_planets: int = 5):
+
+        planets = []
+        albedos = []
+        rotations = []
+        cores = []
+        base_distance = star.radius * 10
+        distance_increment = 5e10
+
+        for i in range(num_planets):
+            mass = np.random.uniform(1e23,5e25)
+            radius = np.cbrt((3 * mass) / (4 * np.pi * 5500))
+
+            distance = base_distance + i * distance_increment + np.random.uniform(-1e9,1e9)
+            position = np.array([star.position[0] + distance, star.position[1], star.position[2]])
+            velocity_magnitude = np.sqrt(G * star.mass / distance)
+            velocity = np.array([0.0,velocity_magnitude,0.0])
+            planet = BodyProperties(
+                mass=mass,
+                radius=radius,
+                position=position,
+                velocity=velocity,
+                name=f"Planet-{star.name}-{i}"
+            )
+
+            planets.append(planet)
+            albedos.append(np.random.uniform(0.1,0.7))
+            rotations.append(np.random.uniform(-2e5,2e5))
+            cores.append(np.random.uniform(0.3,0.8))
+        return planets, albedos, rotations, cores
+    
+    def generate_galaxy_with_planets(self, max_planets_per_star:int = 5):
+        self.orbiting_bodies.clear()
+        all_bodies = list(self.stars)
+        all_albedos = list(self.albedos)
+        all_rotations = list(self.rotation_periods)
+        all_cores = list(self.core_radius_ratios)
+
+        for star in self.stars:
+
+            num_planets = np.random.randint(1,max_planets_per_star+1)
+            planets, albedos, rotations, cores = self.generate_planets_for_star(star,num_planets)
+            self.orbiting_bodies.append(planets)
+            all_bodies.extend(planets)
+            all_albedos.extend(albedos)
+            all_rotations.extend(rotations)
+            all_cores.extend(cores)
+
+        self.simulation_info = SimulationInfo(
+            central_body=None,
+            bodies=all_bodies,
+            albedos=all_albedos,
+            rotation_periods=all_rotations,
+            core_radius_ratios=all_cores
+        )
+        self.simulation_info.update_all()
+
+    def get_body_color(self, body: BodyProperties):
+        if hasattr(body, "spectral_type"):
+            return 
+        self.spectral_colors.get(body.spectral_body, (255,255,255))
+        name = getattr(body, "name", "")
+        if "Planet" in name:
+            star_name = name.split("-")[1]
+            for i,star in enumerate(self.stars):
+                return self.star_colors[i]
+            return (150,150,150)
+        return (200,200,200)
+    
+    def update_orbits(self, time_step: float):
+        for body in self.simulation_info.bodies:
+            acceleration = np.zeros(3)
+            for other_body in self.simulation_info.bodies:
+                if other_body is body:
+                    continue
+
+                r_vec = other_body.position - body.position
+                r = np.linalg.norm(r_vec)
+                if r == 0:
+                    continue
+
+                force_dir = r_vec / r
+                force_mag = G * other_body.mass / (r ** 2)
+
+                acceleration += force_dir * force_mag
+            body.velocity += acceleration * time_step
+        for body in self.simulation_info.bodies:
+            body.position += body.velocity * time_step
+
+    def get_body_info_by_name(self, name:str):
+        for body_info in self.simulation_info.body_infos:
+            if body_info.body.name == name:
+                return body_info
+        return None
+    
+    def get_all_bodies(self):
+        return self.simulation_info.bodies
+    
+    def print_summary(self):
+        print(f"Galaxy with {len(self.stars)} stars, total bodies: {len(self.simulation_info.bodies)}")
+        for star in self.stars:
+            print(f"Star: {star.name} Mass: {star.mass:.2e}kg Position: {star.position}")
+        for idx, body in enumerate(self.simulation_info.bodies):
+            if body in self.stars:
+                continue
+            print(f"Body {idx}: Name: {body.name}, Mass: {body.mass}kg, Position: {body.position}")
+
+    
+    def reset(self, seed:int = None):
+        self.__init__()
+        if seed is not None:
+            np.random.seed(seed)
+            random.seed(seed)
+
+
+class BlackHoleSystem:
+
+    def __init__(self):
+        self.black_holes: List[BodyProperties] = []
+        self.stars: List[BodyProperties] = []
+        self.albedos: List[float] = []
+        self.rotation_periods: List[float] = []
+        self.core_radius_ratios: List[float]= []
+        self.star_colors: List[tuple] = []
+        self.simulation_info: SimulationInfo = None
+        self.init_constants()
+        self.prepare_bodies()
+        self.set_orbits()
+        self.simulation_info = SimulationInfo(central_body=self.black_holes[0] if self.black_holes else None,
+                                              bodies=self.stars + self.black_holes, albedos=self.albedos,
+                                              rotation_periods=self.rotation_periods,core_radius_ratios=self.core_radius_ratios,
+                                              )
+        
+        self.simulation_info.update_all()
+
+    def init_constants(self):
+        self.black_hole_mass = 1e31
+        self.black_hole_radius = 1e4
+        self.bh_position = np.array([0.0,0.0,0.0])
+        self.star_base_mass = 2e30
+        self.star_base_radius = 7e8
+        self.galaxy_size = 2e12
+
+    def prepare_bodies(self):
+        self.black_holes.append(BodyProperties(mass=self.black_hole_mass, radius=self.black_hole_radius, position=self.bh_position, velocity=np.zeros(3),name="Central Black Hole"))
+        self.albedos.append(0,0)
+        self.rotation_periods.append(1.0)
+        self.core_radius_ratios.append(1.0)
+        for i in range(10):
+            angle = i * (2 * np.pi / 10)
+            distance = 1e11 + i * 2e10
+            position = np.array([distance * np.cos(angle),distance * np.sin(angle),0.0])
+            velocity_magnitude = np.sqrt(G * self.black_hole_mass / distance)
+            velocity = np.array([
+                -velocity_magnitude * np.sin(angle),
+                velocity_magnitude * np.cos(angle),0.0
+            ])
+            star = BodyProperties(
+                mass=self.star_base_mass * (0.7 + 0.6 * np.random.rand()),
+                radius=self.star_base_radius * (0.7 + 0.6 * np.random.rand()),
+                position=position,
+                velocity=velocity,
+                name=f"Star{i}"
+            )
+            self.stars.append(star)
+            self.albedos.append(0.7)
+            self.rotation_periods.append(86400 * (0.8 + 0.4 * np.random.rand()))
+            self.core_radius_ratios.append(0.45 + 0.1 - np.random.rand())
+
+    def set_orbits(self):
+        for star in self.stars:
+            r = np.linalg.norm(star.position - self.black_holes[0].position)
+            v_mag = np.sqrt(G * self.black_holes[0].mass / r)
+            r_vec = star.position - self.black_holes[0].position
+            v_dir = np.array([-r_vec[1],r_vec[0],0])
+            v_dir /= np.linalg.norm(v_dir)
+            star.velocity = v_dir * v_mag
