@@ -199,23 +199,24 @@ def comet_planet_collision_process(body1: BodyProperties, body2: BodyProperties,
     debris = create_debris(new_planet, debris_mass)
     return {"new_planet": new_planet,"moon": moon,"debris": debris}
 
-def advanced_collision_outcome(body1: BodyProperties, body2:BodyProperties, gravity_config: GravityConfig) -> dict:
+def advanced_collision_outcome(body1: BodyProperties, body2: BodyProperties, gravity_config: GravityConfig) -> dict:
     impact_vec = body1.velocity - body2.velocity
     impact_velocity = np.linalg.norm(impact_vec)
     impact_energy = 0.5 * (body1.mass + body2.mass) * impact_velocity**2
     ctype = classify_collision_type(body1,body2)
     if ctype == "star-planet":
-        return star_planet_collision_process(body1,body2,impact_energy)
+        return star_planet_collision_process(body1, body2, impact_energy)
     elif ctype == "planet-planet":
-        return planet_planet_collision_process(body1,body2)
+        return planet_planet_collision_process(body1, body2, impact_energy)
     elif ctype == "asteroid-asteroid":
-        return asteroid_collision_process(body1,body2)
+        return asteroid_collision_process(body1, body2, impact_energy)
     elif ctype == "planet-moon":
-        return planet_moon_collision_process(body1,body2)
+        return planet_moon_collision_process(body1, body2, impact_energy)
     elif ctype == "comet-planet":
-        return comet_planet_collision_process(body1,body2)
-    else: 
-        return collision_outcome(body1,body2,gravity_config,impact_velocity)
+        return comet_planet_collision_process(body1, body2, impact_energy)
+    else:
+        return collision_outcome(body1, body2, gravity_config, impact_velocity)
+
     
 def process_advanced_collisions(bodies: List[BodyProperties], gravity_config: GravityConfig) -> list:
     n = len(bodies)
@@ -840,3 +841,70 @@ def merge_clustered_bodies(clusters: list, bodies: List[BodyProperties]) -> list
     return merged_bodies
 
 #collisions module is over
+
+def test_collisions_module():
+    import numpy as np
+
+    # Create sample bodies: 2 planets, 1 asteroid close enough to collide
+    planet1 = BodyProperties(
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0]),
+        mass=5.972e24,
+        radius=6.371e6,
+        body_type="planet"
+    )
+
+    planet2 = BodyProperties(
+        position=np.array([1.1e7, 0.0]),  # Within sum of radii for collision
+        velocity=np.array([-10.0, 0.0]),
+        mass=5.972e24,
+        radius=6.371e6,
+        body_type="planet"
+    )
+
+    asteroid = BodyProperties(
+        position=np.array([3e7, 0.0]),
+        velocity=np.array([-20.0, 0.0]),
+        mass=1e15,
+        radius=5000.0,
+        body_type="asteroid"
+    )
+
+    bodies = [planet1, planet2, asteroid]
+
+    # Define a basic gravity config
+    gravity_config = GravityConfig(
+        model=None,
+        integration_method=None,
+        enable_tidal_forces=False,
+        enable_frame_dragging=False,
+        enable_gw_radiation=False,
+        enable_softening=False,
+        enable_relativistic_corrections=False,
+        softening_length=1e9,
+        max_force_magnitude=1e30,
+        min_distance=1e6,
+        accuracy_tolerance=1e-12,
+        adaptive_timestep=True,
+        use_barnes_hut=False,
+        barnes_hut_theta=0.5
+    )
+
+
+    print("Initial bodies:")
+    for i, b in enumerate(bodies):
+        print(f"Body {i}: Type={b.body_type}, Pos={b.position}, Vel={b.velocity}")
+
+    # Detect collisions initially
+    collisions = detect_physical_collisions(bodies)
+    print(f"Initial collisions detected: {collisions}")
+
+    # Perform one step of collision processing
+    new_bodies = process_advanced_collisions(bodies, gravity_config)
+    print(f"Number of bodies after collisions: {len(new_bodies)}")
+
+    # Print out final bodies info
+    for i, b in enumerate(new_bodies):
+        print(f"Body {i}: Type={getattr(b, 'body_type', 'unknown')}, Pos={b.position}, Vel={b.velocity}, Mass={b.mass}")
+
+test_collisions_module()

@@ -35,7 +35,16 @@ class BodyInfo:
         self.rotation_period = rotation_period
         self.core_radius_ratio = core_radius_ratio
         self.habitability = None
+        self.water_level = 0.0
+        self.tidal_forces = 0.0
+        self.surface_temp = 0.0  # renamed attribute
+        self.magnetic_field = 0.0
         self.update_properties()
+
+    @property
+    def surface_temperature(self):
+        return self.surface_temp
+
 
     def calculate_surface_gravity(self) -> float:
         return G * self.mass / (self.radius ** 2)
@@ -45,11 +54,13 @@ class BodyInfo:
 
     def update_surface_temperature(self, luminosity: float, distance: float):
         sigma = 5.670374419e-8
-        self.surface_temperature = ((luminosity * (1 - self.albedo)) / (16 * np.pi * sigma * distance ** 2)) ** 0.25
+        safe_distance = max(distance, 1e-12)
+        self.surface_temp = ((luminosity * (1 - self.albedo)) / (16 * np.pi * sigma * safe_distance ** 2)) ** 0.25
 
     def estimate_tidal_forces(self, central_body: BodyProperties):
         distance = np.linalg.norm(self.body.position - central_body.position)
-        self.tidal_forces = 2 * G * central_body.mass * self.radius / distance ** 3
+        safe_distance = max(distance, 1e-12)
+        self.tidal_forces = 2 * G * central_body.mass * self.radius / safe_distance ** 3
 
     def estimate_water_level(self, solar_flux: float):
         self.water_level = min(solar_flux / 1361, 1.0)
@@ -63,7 +74,7 @@ class BodyInfo:
             water_fraction=self.water_level,
             oxygen_level=0.21,
             atmospheric_pressure=1.0,
-            surface_temperature=self.surface_temperature,
+            surface_temperature=self.surface_temp,  # use renamed attribute
             tidal_forces=self.tidal_forces,
             magnetic_field_strength=self.magnetic_field
         )
@@ -73,7 +84,7 @@ class BodyInfo:
             distance = np.linalg.norm(self.body.position - central_body.position)
             self.update_surface_temperature(luminosity, distance)
             self.estimate_tidal_forces(central_body)
-            solar_flux = luminosity / (4 * np.pi * distance ** 2)
+            solar_flux = luminosity / (4 * np.pi * max(distance, 1e-12) ** 2)
             self.estimate_water_level(solar_flux)
         self.update_magnetic_field()
         self.calculate_habitability()
@@ -83,12 +94,13 @@ class BodyInfo:
             "mass": self.mass,
             "radius": self.radius,
             "density": self.density,
-            "surface_temperature": self.surface_temperature,
+            "surface_temperature": self.surface_temp,
             "water_level": self.water_level,
             "tidal_forces": self.tidal_forces,
             "magnetic_field": self.magnetic_field,
             "life_probability": self.habitability.life_probability() if self.habitability else None,
         }
+
 
 class SimulationInfo:
     def __init__(self, central_body: BodyProperties, bodies: List[BodyProperties],
@@ -378,7 +390,7 @@ class BiosphereModel:
         self.body_info = body_info
         self.life_probability = initial_life_probability
         self.complexity_index = 0.0
-        self.biodiversity_index - 0.0
+        self.biodiversity_index = 0.0
         self.age = 0.0
 
     def evolve_life(self, time_step: float, environmental_factors: dict):
@@ -548,3 +560,40 @@ class EcosystemModel:
         }
     
 #Information module is over...
+
+
+def test_info_with_physics():
+    from gravity import BodyProperties, GravityConfig
+    import numpy as np
+
+    # Setup physics bodies
+    star = BodyProperties(
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0]),
+        mass=1.989e30,
+        radius=6.96e8,
+        body_type="star"
+    )
+    planet = BodyProperties(
+        position=np.array([1.496e11, 0.0]),
+        velocity=np.array([0.0, 29780.0]),
+        mass=5.972e24,
+        radius=6.371e6,
+        body_type="planet"
+    )
+    
+    bodies = [star, planet]
+    albedos = [0.3, 0.3]
+    rotation_periods = [86400, 86400]
+    core_radius_ratios = [0.5, 0.5]
+
+
+    sim_info = SimulationInfo(star, bodies, albedos, rotation_periods, core_radius_ratios)
+
+    # Update all info calculations
+    sim_info.update_all()
+
+    # Print summaries
+    sim_info.print_summary()
+
+test_info_with_physics()

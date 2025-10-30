@@ -161,7 +161,7 @@ class OrbitalMechanicsManager:
         
         mean_motion = np.sqrt(G * self.central_body.mass / elements.semi_major_axis ** 3)
 
-        mean_anomaly = elements.mean_anomaly + mean_motion * time
+        mean_anomaly = elements.true_anomaly + mean_motion * time
 
         eccentric_anomaly = solve_kepler(mean_anomaly,elements.eccentricity)
 
@@ -575,7 +575,7 @@ class SimulationOrchestrator:
         
         collision_pairs = self.collision_handler.detect_collisions(bodies)
         if collision_pairs:
-            bodies = self.collision_handler.handle_all_collisions(bodies, current_time)
+            bodies = self.collision_handler.handled_all_collisions(bodies, current_time)
             self.physics_engine.bodies = bodies
             
             for i, j in collision_pairs:
@@ -945,3 +945,74 @@ class Physics:
     
 
 #Physics.py is over
+
+
+def test_physics_module():
+    from gravity import BodyProperties, GravityConfig
+    import numpy as np
+
+    # Basic gravity config (without G param in constructor)
+    gravity_config = GravityConfig(
+        model=None,
+        integration_method=None,
+        enable_tidal_forces=False,
+        enable_frame_dragging=False,
+        enable_gw_radiation=False,
+        enable_softening=False,
+        enable_relativistic_corrections=False,
+        softening_length=1e9,
+        max_force_magnitude=1e30,
+        min_distance=1e6,
+        accuracy_tolerance=1e-12,
+        adaptive_timestep=True,
+        use_barnes_hut=False,
+        barnes_hut_theta=0.5
+    )
+
+    # Create simple star and planet bodies
+    star = BodyProperties(
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0]),
+        mass=1.989e30,
+        radius=6.96e8,
+        body_type="star"
+    )
+    planet = BodyProperties(
+        position=np.array([1.496e11, 0.0]),
+        velocity=np.array([0.0, 29780.0]),
+        mass=5.972e24,
+        radius=6.371e6,
+        body_type="planet"
+    )
+
+    bodies = [star, planet]
+
+    # Initialize physics system
+    physics = Physics(gravity_config, central_body=star)
+    physics.load_bodies(bodies)
+
+    print("Initial State:")
+    state = physics.get_state()
+    print(f"Time: {state.time}, Body count: {len(state.bodies)}")
+
+    # Step simulation
+    steps_to_run = 10
+    for step in range(steps_to_run):
+        physics.advance_time()
+        state = physics.get_state()
+        print(
+            f"Step {step + 1}: Time: {state.time}, Total Energy: {state.total_energy}, "
+            f"Collision Count: {state.collision_count}, Body count: {len(state.bodies)}"
+        )
+        for i, body in enumerate(state.bodies):
+            print(f"Body {i} Type: {getattr(body,'body_type','N/A')}, Pos: {body.position}, Vel: {body.velocity}")
+
+    # Print energy conservation info
+    energy_report = physics.summarize_energy_momentum()["energy_report"]
+    print("Energy report:", energy_report)
+
+    # Print collision statistics
+    collision_stats = physics.summarize_energy_momentum()["collision_stats"]
+    print("Collision stats:", collision_stats)
+
+test_physics_module()

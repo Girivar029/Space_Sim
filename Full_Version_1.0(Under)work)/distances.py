@@ -37,13 +37,19 @@ def is_collision_likely(body1: BodyProperties, body2: BodyProperties, distance_t
 def propagate_position(body: BodyProperties, time: float, central_body: BodyProperties, gravity_config: GravityConfig) -> np.ndarray:
     elements = calculate_orbital_elements(body, central_body, gravity_config)
     mu = G * (body.mass + central_body.mass)
-    n = np.sqrt(mu / elements.semi_major_axis ** 3)
+    if elements.semi_major_axis == float('inf') or elements.semi_major_axis <= 0:
+        return body.position  # can't propagate safely
+
+    n = math.sqrt(mu / elements.semi_major_axis ** 3)
     M = n * time
     E = solve_kepler(M, elements.eccentricity)
-    true_anomaly = 2 * np.arctan2(np.sqrt(1 + elements.eccentricity) * np.sin(E / 2), np.sqrt(1 - elements.eccentricity) * np.cos(E / 2))
+    true_anomaly = 2 * math.atan2(math.sqrt(1 + elements.eccentricity) * math.sin(E / 2),
+                                  math.sqrt(1 - elements.eccentricity) * math.cos(E / 2))
+
     r = orbit_radius_from_the_true_anomaly(elements.semi_major_axis, elements.eccentricity, true_anomaly)
     pos = polar_to_cartesian(r, true_anomaly) + central_body.position
     return pos
+
 
 def closest_approach_time(body1: BodyProperties, body2: BodyProperties, central_body: BodyProperties, gravity_config: GravityConfig, max_time: float, dt: float = 1e4) -> Optional[float]:
     t = 0.0
@@ -994,3 +1000,54 @@ def absolute_mean_distance_matrix(bodies: List[BodyProperties], sample_times: Li
             avg_matrix[j,i] = mean_val
     return avg_matrix
 #Distances module is over, not a lot of comments cos no time.
+
+def main():
+    import numpy as np
+
+    star = BodyProperties(
+        body_type="star",
+        mass=1.989e30,
+        radius=6.96e8,
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0])
+    )
+
+    planet = BodyProperties(
+        body_type="planet",
+        mass=5.972e24,
+        radius=6.371e6,
+        position=np.array([1.496e11, 0.0]),
+        velocity=np.array([0.0, 29780.0])
+    )
+
+    gravity_config = GravityConfig(
+        model=None,
+        integration_method=None,
+        enable_tidal_forces=False,
+        enable_frame_dragging=False,
+        enable_gw_radiation=False,
+        enable_softening=False,
+        enable_relativistic_corrections=False,
+        softening_length=1e9,
+        max_force_magnitude=1e30,
+        min_distance=1e6,
+        accuracy_tolerance=1e-12,
+        adaptive_timestep=True,
+        use_barnes_hut=False,
+        barnes_hut_theta=0.5
+    )
+
+    print("Euclidean distance star-planet:", euclidean_distance(star, planet))
+    
+    dist_matrix = distances_matrix([star, planet])
+    print("Distance matrix:\n", dist_matrix)
+    
+    collision_likely = is_collision_likely(star, planet)
+    print("Collision likely:", collision_likely)
+    
+    closest = closest_approach_distance(star, planet, star, gravity_config)
+    print("Closest approach distance:", closest)
+    
+    min_t = closest_approach_time(star, planet, star, gravity_config, max_time=3.154e7)  # 1 year in seconds
+    print("Closest approach time (s):", min_t)
+main()

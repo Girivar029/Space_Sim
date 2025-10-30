@@ -151,10 +151,24 @@ class BodyProperties:
 
     def __post_init__(self):
         if self.acceleration is None:
-            self.acceleration = np.array([0.0,0.0])
+            self.acceleration = np.array([0.0, 0.0])
         if self.spin_axis is None:
-            self.spin_axis = np.array([0.0,0.0,1.0])
-        
+            self.spin_axis = np.array([0.0, 0.0, 1.0])
+
+    # Normalize body_type to scalar if it was passed as a numpy array
+        if isinstance(self.body_type, np.ndarray):
+            if self.body_type.size == 1:
+                self.body_type = self.body_type.item()
+            else:
+                raise ValueError(f"body_type attribute has invalid shape: {self.body_type.shape}")
+
+    # Optionally convert string to Enum if you use Enum internally
+        if isinstance(self.body_type, str):
+            try:
+                self.body_type = BodyType[self.body_type.upper()]
+            except KeyError:
+                pass  # If not in enum, keep as string
+
         if self.body_type == BodyType.BLACKHOLE:
             self.schwarzschild_radius = 2.0 * G * self.mass / (C * C)
             self.photon_sphere_radius = 1.5 * self.schwarzschild_radius
@@ -164,7 +178,7 @@ class BodyProperties:
                     (C * self.spin_angular_momentum) / (G * self.mass * self.mass),
                     KERR_PARAMETER_MAX
                 )
-            
+
         if self.is_extended and self.radius > 0:
             volume = (4.0 / 3.0) * math.pi * (self.radius ** 3)
             self.density = self.mass / volume
@@ -1040,31 +1054,34 @@ def rk4_step(self, bodies: List[BodyProperties], dt: float, time: float = 0.0):
             else:
                 self.euler_step(bodies, dt, time)
 
-def calculate_system_energy(bodies: List[BodyProperties]) -> float:
+def calculate_system_energy(bodies: List[BodyProperties]) -> Tuple[float, float, float]:
     if len(bodies) == 0:
-        return 0.0
-    
+        return 0.0, 0.0, 0.0
+
     kinetic_energy = 0.0
     for body in bodies:
         kinetic_energy += 0.5 * body.mass * np.linalg.norm(body.velocity) ** 2
-    
+
     potential_energy = 0.0
     n = len(bodies)
-    
+
     if n < 2:
-        return kinetic_energy
-    
+        return kinetic_energy, 0.0, kinetic_energy
+
     positions = np.array([b.position for b in bodies])
     masses = np.array([b.mass for b in bodies])
-    
+
     diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
     distances = np.linalg.norm(diff, axis=2)
     np.fill_diagonal(distances, np.inf)
-    
+
     mass_matrix = masses[:, None] * masses[None, :]
     potential_energy = -np.sum(G * mass_matrix / distances) / 2
-    
-    return kinetic_energy + potential_energy
+
+    total_energy = kinetic_energy + potential_energy
+
+    return kinetic_energy, potential_energy, total_energy
+
 
 
 
@@ -1168,3 +1185,59 @@ def export_system_data_for_hud(bodies: List[BodyProperties], state: GravitySyste
     }
     return data
 #Gravity part of the sim in completed.
+
+
+def main():
+    import numpy as np
+
+    star = BodyProperties(
+        body_type=BodyType.STAR,
+        mass=SOLAR_MASS,
+        radius=SOLAR_RADIUS,
+        position=np.array([0.0, 0.0]),
+        velocity=np.array([0.0, 0.0])
+    )
+
+    planet = BodyProperties(
+        body_type=BodyType.PLANET,
+        mass=EARTH_MASS,
+        radius=EARTH_RADIUS,
+        position=np.array([AU, 0.0]),
+        velocity=np.array([0.0, 29780.0])  # Earth's approx orbital velocity in m/s
+    )
+
+    bodies = [star, planet]
+
+    config = GravityConfig(
+        model=GravityModel.NEWTONIAN,
+        integration_method=IntegrationModule.RK4,
+        enable_tidal_forces=False,
+        enable_frame_dragging=False,
+        enable_gw_radiation=False,
+        enable_softening=True,
+        enable_relativistic_corrections=False,
+        softening_length=BASE_SOFTENING,
+        max_force_magnitude=MAX_FORCE_MAGNITUDE,
+        min_distance=MIN_DISTANCE,
+        accuracy_tolerance=INTEGRATION_TOLERANCE,
+        adaptive_timestep=True,
+        use_barnes_hut=False,
+        barnes_hut_theta=0.5
+    )
+
+    integrator = GravityIntegrator(config)
+
+    dt = 3600  # 1 hour timestep in seconds
+    simulation_time = 0.0
+    num_steps = 5
+
+    for step in range(num_steps):
+        integrator.integrate_step(bodies, dt, simulation_time)
+        simulation_time += dt
+        state = update_system_state(bodies)
+        print(f"Step {step + 1}:")
+        for i, body in enumerate(bodies):
+            print(f"Body {i} ({body.body_type.value}): Pos={body.position}, Vel={body.velocity}")
+        print(f"Total Energy: {state.total_energy}, Virial Ratio: {state.virial_ratio}\n")
+
+main()
