@@ -13,3 +13,7 @@ Work_Completed:
 Day 3(12-10-25) - Completed a bsic version, 1 file with 750 lines which simulates basic systems, collisions and physics while lacking bigger and more correct physics and collision.
 
 Day 4(13-10-25) - Started the larger version of the sim with the gravity part of the code. Total time spent coding so far = 9hrs 37mins
+
+Day idk(31-10-25) - missed a lot of logging in between, typing this here to eat time of 5 mins as I have 74hrs and 55 mins, a little more time can make me touch 75hrs.
+
+Engine is made and tested to be working and accurate, the simulation part of it is still being worked on right now!
