@@ -1,11 +1,11 @@
 Hey!
 
-This is still under works and need some more work to have it finished, but I do have a working version in tests part called test_final. Pls test that for now, the full version coming soon.
-
+-This is primarily an engine and only a simulation for visual appeal, this is a finished engine which can be used to run tests by specifying values and other necessary data. It contains everything from a gravity test module to a check for life, atmosphere, climate and habitability in the engine which are not available in the simulation
 
 
 This is a 2d Planatery Physics Engine/Simulation:-
--The Engine Part(The 5 physics related modules, informations and HUD) Of Which Is Over but The Simulation Part is Being worked on(Scenarios & Main.py).
+-The Engine Part(The 5 physics related modules, informations and HUD).
 -Made for Moonshot!
 
 -Usage of AI:- AI has only been used to teach me formulae, concepts and planning, and also used partially for fixing bugs.
+

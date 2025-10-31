@@ -76,16 +76,16 @@ class CentralPhysicsEngine:
 
     def calculate_gravitational_forces(self) -> np.ndarray:
         n = len(self.bodies)
-        forces = np.zeros((n,2))
+        forces = np.zeros((n, 3))   # Fix: make this 3D instead of 2D
 
         if n < 2:
             return forces
-        
-        positions = np.array([b.position for b in self.bodies])
+
+        positions = np.array([np.append(b.position, 0.0) if len(b.position) == 2 else b.position for b in self.bodies])
         masses = np.array([b.mass for b in self.bodies])
 
         for i in range(n):
-            for j in range(i+1,n):
+            for j in range(i+1, n):
                 r_vec = positions[j] - positions[i]
                 r = np.linalg.norm(r_vec)
                 if r == 0:
@@ -93,18 +93,30 @@ class CentralPhysicsEngine:
 
                 force_mag = G * masses[i] * masses[j] / (r**2)
                 force_vec = force_mag * r_vec / r
+
                 forces[i] += force_vec
                 forces[j] -= force_vec
 
         return forces
+
     
     def update_velocities(self, forces: np.ndarray):
         for i, body in enumerate(self.bodies):
+            if len(body.velocity) == 2:
+                body.velocity = np.append(body.velocity, 0.0)
             acceleration = forces[i] / body.mass
+            if len(acceleration) == 2:
+                acceleration = np.append(acceleration, 0.0)
             body.velocity += acceleration * self.dt
+
             
     def update_position(self):
         for body in self.bodies:
+            # Enforce 3D position
+            if len(body.position) == 2:
+                body.position = np.append(body.position, 0.0)
+            if len(body.velocity) == 2:
+                body.velocity = np.append(body.velocity, 0.0)
             body.position += body.velocity * self.dt
 
     def step(self):
@@ -119,20 +131,19 @@ class CentralPhysicsEngine:
 
         total_angular_momentum = np.zeros(3)
         for body in self.bodies:
-            r = np.append(body.position,0.0)
-            v = np.append(body.velocity,0.0)
-            L = body.mass * np.cross(r,v)
+            pos = np.append(body.position, 0.0) if len(body.position) == 2 else body.position
+            vel = np.append(body.velocity, 0.0) if len(body.velocity) == 2 else body.velocity
+            L = body.mass * np.cross(pos, vel)
             total_angular_momentum += L
 
-
         return PhysicsState(
-            time=self.time,
-            bodies=self.bodies[:],
-            total_energy=total_energy,
-            total_momentum=com_vel * sum(b.mass for b in self.bodies),
-            angular_momentum=total_angular_momentum,
-            center_of_mass=com
-        )
+        time=self.time,
+        bodies=self.bodies[:],
+        total_energy=total_energy,
+        total_momentum=com_vel * sum(b.mass for b in self.bodies),
+        angular_momentum=total_angular_momentum,
+        center_of_mass=com
+    )
     
 class OrbitalMechanicsManager:
     """Manages orbital calculations just as the name suggests"""
@@ -420,7 +431,7 @@ class EnergyMomentumMonitor:
         self.energy_history.append((time,total_energy))
 
     def record_momentum(self,time: float, bodies: List[BodyProperties]):
-        total_momentum = np.zeros(2)
+        total_momentum = np.zeros(3)
 
         for body in bodies:
             total_momentum += body.mass * body.velocity
@@ -428,16 +439,18 @@ class EnergyMomentumMonitor:
         self.momentum_history.append((time,total_momentum))
 
     def record_angular_momentum(self, time: float, bodies: List[BodyProperties]):
-
         total_L = np.zeros(3)
-
         for body in bodies:
-            r = np.append(body.position,0.0)
-            v = np.append(body.velocity, 0.0)
-            L = body.mass * np.cross(r,v)
+            r = np.array(body.position)
+            v = np.array(body.velocity)
+            if r.shape != (3,):
+                r = np.append(r, 0.0)
+            if v.shape != (3,):
+                v = np.append(v, 0.0)
+            L = body.mass * np.cross(r, v)
             total_L += L
+        self.angular_momentum_history.append((time, total_L))
 
-        self.angular_momentum_history.append((time,total_L))
 
     def compute_energy_conservation_error(self) -> float:
         if len(self.energy_history) < 2:
